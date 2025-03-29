@@ -8,4 +8,15 @@ module.exports = {
   module: {
     rules: require('./webpack.rules'),
   },
+  resolve: {
+    extensions: ['.js', '.jsx'],
+    fallback: {
+      "path": false,
+      "fs": false,
+      "crypto": false,
+      "stream": false,
+      "buffer": false
+    }
+  },
+  target: 'electron-main'
 };
