@@ -77,6 +77,21 @@ const Sidebar = ({ collapsed, toggleSidebar }) => {
                         </li>
                     )}
 
+                    {/* Fake Invoices - Always visible */}
+                    {(hasPermission('dashboard') || user?.role === 'admin') && (
+                        <li>
+                            <Link
+                                to="/fake-invoices"
+                                className={`flex items-center p-2 rounded-md ${isActive('/fake-invoices') ? activeClass : inactiveClass}`}
+                            >
+                                <svg className="w-6 h-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                {!collapsed && <span>Fake Invoices</span>}
+                            </Link>
+                        </li>
+                    )}
+
                     {/* Inventory Management */}
                     {canView('inventory') && (
                         <li>
@@ -132,7 +147,7 @@ const Sidebar = ({ collapsed, toggleSidebar }) => {
                             </button>
                             {expandedItems.financial && !collapsed && (
                                 <ul className="pl-10 mt-1 space-y-1">
-                                    {hasPermission('financial.details') && (
+                                    {/* {hasPermission('financial.details') && (
                                         <li>
                                             <Link
                                                 to="/financial/details"
@@ -151,7 +166,7 @@ const Sidebar = ({ collapsed, toggleSidebar }) => {
                                                 Profit & Loss
                                             </Link>
                                         </li>
-                                    )}
+                                    )} */}
                                     {hasPermission('financial.salesReport') && (
                                         <li>
                                             <Link
@@ -161,6 +176,14 @@ const Sidebar = ({ collapsed, toggleSidebar }) => {
                                                 Sales Report
                                             </Link>
                                         </li>
+                                    )}
+                                    {user?.role === 'admin' && (
+                                        <Link
+                                            to="/financial/balance-sheet"
+                                            className={`block p-2 rounded-md ${location.pathname === '/financial/balance-sheet' ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
+                                        >
+                                            Balance Sheet
+                                        </Link>
                                     )}
                                 </ul>
                             )}
@@ -202,6 +225,14 @@ const Sidebar = ({ collapsed, toggleSidebar }) => {
                                             className={`block p-2 rounded-md ${location.pathname === '/customers/invoices' ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
                                         >
                                             Customer Invoices
+                                        </Link>
+                                    )}
+                                    {hasPermission('customers.invoices') && (
+                                        <Link
+                                            to="/customers/invoice"
+                                            className={`block p-2 rounded-md ${location.pathname === '/customers/invoice' ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
+                                        >
+                                            Generate Customer Invoice
                                         </Link>
                                     )}
                                     {hasPermission('customers.payables') && (
@@ -252,6 +283,14 @@ const Sidebar = ({ collapsed, toggleSidebar }) => {
                                             className={`block p-2 rounded-md ${location.pathname === '/vendors/invoices' ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
                                         >
                                             Vendor Invoices
+                                        </Link>
+                                    )}
+                                    {hasPermission('vendors.invoices') && (
+                                        <Link
+                                            to="/vendors/generate"
+                                            className={`block p-2 rounded-md ${location.pathname === '/vendors/generate' ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
+                                        >
+                                            Generate Vendor Invoice
                                         </Link>
                                     )}
                                     {hasPermission('vendors.payables') && (
@@ -395,6 +434,14 @@ const Sidebar = ({ collapsed, toggleSidebar }) => {
                                             className={`block p-2 rounded-md ${location.pathname === '/settings/users' ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
                                         >
                                             User Management
+                                        </Link>
+                                    )}
+                                    {user?.role === 'admin' && (
+                                        <Link
+                                            to="/settings/utilities"
+                                            className={`block p-2 rounded-md ${location.pathname === '/settings/utilities' ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
+                                        >
+                                            System Utilities
                                         </Link>
                                     )}
                                 </div>

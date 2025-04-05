@@ -43,8 +43,18 @@ const InvoiceModel = {
             status: invoiceDetails.remainingAmount <= 0 ? 'paid' : 'not paid',
             paidAmount: invoiceDetails.paidAmount || 0,
             remainingAmount: invoiceDetails.remainingAmount || invoiceDetails.totalAmount || 0,
-            paidDate: invoiceDetails.remainingAmount <= 0 ? new Date() : null
+            paidDate: invoiceDetails.remainingAmount <= 0 ? new Date() : null,
+            paymentHistory: []  // Initialize empty payment history array
         };
+
+        // If initial payment was made, add to payment history
+        if (invoiceDetails.paidAmount > 0) {
+            customerPaymentDefaults.paymentHistory.push({
+                amount: parseFloat(invoiceDetails.paidAmount),
+                method: invoiceDetails.paymentMethod || 'cash',
+                date: new Date().toISOString()
+            });
+        }
 
         // Add default values for broker payment fields if a broker is selected
         const brokerPaymentDefaults = invoiceDetails.brokerId ? {
@@ -72,6 +82,16 @@ const InvoiceModel = {
     },
 
     update: (id, updateData) => {
+        // Ensure commission amounts are integers
+        if (updateData.commissionAmount !== undefined) {
+            updateData.commissionAmount = Math.round(parseFloat(updateData.commissionAmount || 0));
+        }
+
+        // Ensure totalAmount is properly handled
+        if (updateData.totalAmount !== undefined) {
+            updateData.totalAmount = parseFloat(updateData.totalAmount || 0);
+        }
+
         return new Promise((resolve, reject) => {
             db.invoices.update(
                 { _id: id },
@@ -88,34 +108,61 @@ const InvoiceModel = {
     // Update customer payment
     updateCustomerPayment: (id, paymentData) => {
         return new Promise((resolve, reject) => {
-            // Ensure values are properly formatted
-            const paidAmount = Math.round(parseFloat(paymentData.paidAmount || 0));
-            const totalAmount = Math.round(parseFloat(paymentData.totalAmount || 0));
-
-            // Calculate payment status
-            const remainingAmount = Math.max(0, totalAmount - paidAmount);
-
-            const status = remainingAmount <= 0
-                ? 'paid'
-                : (paidAmount > 0 ? 'partially paid' : 'not paid');
-
-            db.invoices.update(
-                { _id: id },
-                {
-                    $set: {
-                        paidAmount: paidAmount,
-                        remainingAmount: remainingAmount,
-                        status: status,
-                        paidDate: status === 'paid' ? new Date() : null,
-                        updatedAt: new Date()
-                    }
-                },
-                {},
-                (err, numUpdated) => {
-                    if (err) reject(err);
-                    resolve(numUpdated > 0);
+            // Get existing invoice first to update history
+            db.invoices.findOne({ _id: id }, (err, existingInvoice) => {
+                if (err) {
+                    reject(err);
+                    return;
                 }
-            );
+
+                if (!existingInvoice) {
+                    reject(new Error('Invoice not found'));
+                    return;
+                }
+
+                // Get the new payment data
+                const payment = paymentData.payment || {};
+
+                // Ensure values are properly formatted
+                const paidAmount = parseFloat(paymentData.paidAmount || 0);
+                const remainingAmount = parseFloat(paymentData.remainingAmount || 0);
+
+                // Calculate payment status
+                const status = remainingAmount <= 0
+                    ? 'paid'
+                    : (paidAmount > 0 ? 'partially paid' : 'not paid');
+
+                // Initialize payment history if it doesn't exist
+                const paymentHistory = existingInvoice.paymentHistory || [];
+
+                // Add the new payment to history if it exists
+                if (payment.amount && payment.method) {
+                    paymentHistory.push({
+                        amount: parseFloat(payment.amount),
+                        method: payment.method,
+                        date: payment.date || new Date().toISOString()
+                    });
+                }
+
+                db.invoices.update(
+                    { _id: id },
+                    {
+                        $set: {
+                            paidAmount: paidAmount,
+                            remainingAmount: remainingAmount,
+                            status: status,
+                            paidDate: status === 'paid' ? new Date() : null,
+                            paymentHistory: paymentHistory,
+                            updatedAt: new Date()
+                        }
+                    },
+                    {},
+                    (updateErr, numUpdated) => {
+                        if (updateErr) reject(updateErr);
+                        resolve(numUpdated > 0);
+                    }
+                );
+            });
         });
     },
 
@@ -207,6 +254,7 @@ const InvoiceModel = {
                 name: item.name || inventoryMap[item.itemId]?.name || 'Unnamed Item',
                 itemName: item.itemName || inventoryMap[item.itemId]?.name || 'Unnamed Item',
                 netWeight: parseFloat(item.netWeight || 0),
+                grossWeight: parseFloat(item.grossWeight || 0),
                 sellingPrice: Math.round(parseFloat(item.sellingPrice || 0)),
                 packagingCost: Math.round(parseFloat(item.packagingCost || 0)),
                 quantity: parseFloat(item.quantity || 0)
@@ -237,15 +285,17 @@ const InvoiceModel = {
                     // Calculate new quantities with float values
                     const newQuantity = parseFloat(inventoryItem.quantity) - parseFloat(item.quantity);
                     const newNetWeight = parseFloat(inventoryItem.netWeight) - parseFloat(item.netWeight);
+                    const newGrossWeight = parseFloat(inventoryItem.grossWeight || 0) - parseFloat(item.grossWeight || 0);
 
-                    if (newQuantity < 0 || newNetWeight < 0) {
+                    if (newQuantity < 0 || newNetWeight < 0 || newGrossWeight < 0) {
                         throw new Error(`Insufficient stock for item ${item.name || inventoryItem.name}`);
                     }
 
                     // Update inventory with float quantity and integer prices
                     await InventoryModel.update(inventoryItem._id, {
                         quantity: newQuantity,
-                        netWeight: newNetWeight
+                        netWeight: newNetWeight,
+                        grossWeight: newGrossWeight
                     });
 
                     resolveItem(true);

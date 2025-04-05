@@ -25,6 +25,51 @@ const registerInventoryRoutes = () => {
         return await InventoryController.updateInventoryItem(itemData);
     });
 
+    // Update inventory quantity (used by invoice creation)
+    ipcMain.handle('update-inventory-quantity', async (event, updateData) => {
+        try {
+            const { itemId, quantity, netWeight, grossWeight } = updateData;
+
+            console.log('Updating inventory with: ', { itemId, quantity, netWeight, grossWeight });
+
+            // Find the inventory item
+            const item = await InventoryModel.findOne({ _id: itemId });
+            if (!item) {
+                throw new Error(`Item with ID ${itemId} not found`);
+            }
+
+            console.log('Original inventory item: ', {
+                itemId: item.itemId,
+                quantity: item.quantity,
+                netWeight: item.netWeight,
+                grossWeight: item.grossWeight
+            });
+
+            // Update the item with new quantities
+            const result = await InventoryModel.update(itemId, {
+                quantity: parseFloat(quantity || item.quantity || 0),
+                netWeight: parseFloat(netWeight || item.netWeight || 0),
+                grossWeight: parseFloat(grossWeight || item.grossWeight || 0)
+            });
+
+            console.log('Inventory update result: ', result);
+
+            // Get the updated item to verify the changes
+            const updatedItem = await InventoryModel.findOne({ _id: itemId });
+            console.log('Updated inventory item: ', {
+                itemId: updatedItem.itemId,
+                quantity: updatedItem.quantity,
+                netWeight: updatedItem.netWeight,
+                grossWeight: updatedItem.grossWeight
+            });
+
+            return result;
+        } catch (error) {
+            console.error('Error updating inventory quantity:', error);
+            throw error;
+        }
+    });
+
     // Delete inventory item
     ipcMain.handle('delete-inventory-item', async (event, itemId) => {
         return await InventoryController.deleteInventoryItem(itemId);
@@ -135,6 +180,18 @@ const registerInventoryRoutes = () => {
                 limit: parseInt(perPage),
                 sort: { createdAt: -1 }
             });
+
+            // Log sample item to debug
+            if (items && items.length > 0) {
+                console.log('Sample inventory item from get-inventory-items:', {
+                    itemId: items[0].itemId,
+                    name: items[0].name,
+                    quantity: items[0].quantity,
+                    netWeight: items[0].netWeight,
+                    grossWeight: items[0].grossWeight,
+                    hasGrossWeight: items[0].hasOwnProperty('grossWeight')
+                });
+            }
 
             const total = await InventoryModel.count(query);
 

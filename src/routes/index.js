@@ -7,6 +7,7 @@ const registerVendorRoutes = require('./vendorRoutes');
 const registerBrokerRoutes = require('./brokerRoutes');
 const registerCommissionerRoutes = require('./commissionerRoutes');
 const registerCommissionSheetRoutes = require('./commissionSheetRoutes');
+const registerUtilityRoutes = require('./utilityRoutes');
 
 const registerAllRoutes = () => {
     console.log('Starting to register all routes...');
@@ -47,6 +48,10 @@ const registerAllRoutes = () => {
         console.log('Registering commission sheet routes...');
         registerCommissionSheetRoutes();
         console.log('Commission sheet routes registered');
+
+        console.log('Registering utility routes...');
+        registerUtilityRoutes();
+        console.log('Utility routes registered');
 
         console.log('All IPC routes registered successfully');
     } catch (error) {

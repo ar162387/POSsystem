@@ -125,6 +125,7 @@ const PermissionsManager = ({ user, onSave, onCancel }) => {
                 <div className="border-b pb-4">
                     <h4 className="font-medium text-gray-800 mb-2">Dashboard</h4>
                     {renderPermissionCheckbox('Access Dashboard', 'dashboard')}
+                    {renderPermissionCheckbox('Access Fake Invoices', 'fakeInvoices')}
                 </div>
 
                 {/* Inventory */}
@@ -138,9 +139,10 @@ const PermissionsManager = ({ user, onSave, onCancel }) => {
                 <div className="border-b pb-4">
                     <h4 className="font-medium text-gray-800 mb-2">Financial Management</h4>
                     {renderPermissionCheckbox('View Financial Section', 'financial.view')}
-                    {renderPermissionCheckbox('Access Financial Details', 'financial.details')}
-                    {renderPermissionCheckbox('Access Profit & Loss', 'financial.profitLoss')}
+                    {/* {renderPermissionCheckbox('Access Financial Details', 'financial.details')} */}
+                    {/* {renderPermissionCheckbox('Access Profit & Loss', 'financial.profitLoss')} */}
                     {renderPermissionCheckbox('Access Sales Report', 'financial.salesReport')}
+                    {renderPermissionCheckbox('Access Balance Sheet', 'financial.balanceSheet')}
                 </div>
 
                 {/* Customers */}
@@ -149,6 +151,7 @@ const PermissionsManager = ({ user, onSave, onCancel }) => {
                     {renderPermissionCheckbox('View Customers Section', 'customers.view')}
                     {renderPermissionCheckbox('Customer List', 'customers.list')}
                     {renderPermissionCheckbox('Customer Invoices', 'customers.invoices')}
+                    {renderPermissionCheckbox('Generate Customer Invoice', 'customers.generateInvoice')}
                     {renderPermissionCheckbox('Customer Payables', 'customers.payables')}
                 </div>
 
@@ -158,6 +161,7 @@ const PermissionsManager = ({ user, onSave, onCancel }) => {
                     {renderPermissionCheckbox('View Vendors Section', 'vendors.view')}
                     {renderPermissionCheckbox('Vendor List', 'vendors.list')}
                     {renderPermissionCheckbox('Vendor Invoices', 'vendors.invoices')}
+                    {renderPermissionCheckbox('Generate Vendor Invoice', 'vendors.generateInvoice')}
                     {renderPermissionCheckbox('Vendor Payables', 'vendors.payables')}
                 </div>
 
@@ -184,6 +188,7 @@ const PermissionsManager = ({ user, onSave, onCancel }) => {
                     {renderPermissionCheckbox('View Settings Section', 'settings.view')}
                     {renderPermissionCheckbox('Account Settings', 'settings.account')}
                     {renderPermissionCheckbox('User Management', 'settings.userManagement')}
+                    {renderPermissionCheckbox('System Utilities', 'settings.utilities')}
                 </div>
             </div>
 

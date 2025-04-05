@@ -123,6 +123,7 @@ const VendorInvoiceModel = {
                 name: item.name || inventoryMap[item.itemId]?.name || 'Unnamed Item',
                 itemName: item.itemName || inventoryMap[item.itemId]?.name || 'Unnamed Item',
                 netWeight: parseFloat(item.netWeight || 0),
+                grossWeight: parseFloat(item.grossWeight || 0),
                 purchasePrice: parseFloat(item.purchasePrice || item.costPrice || 0),
                 packagingCost: parseFloat(item.packagingCost || 0),
                 quantity: parseInt(item.quantity || 0)
@@ -153,6 +154,7 @@ const VendorInvoiceModel = {
                             name: item.name || item.itemName,
                             quantity: item.quantity,
                             netWeight: item.netWeight,
+                            grossWeight: item.grossWeight || 0,
                             costPrice: item.purchasePrice || item.costPrice || 0,
                             sellingPrice: item.sellingPrice || 0,
                             packagingCost: item.packagingCost || 0
@@ -161,11 +163,13 @@ const VendorInvoiceModel = {
                         // Calculate new quantities - INCREMENTING for vendor invoices
                         const newQuantity = inventoryItem.quantity + item.quantity;
                         const newNetWeight = inventoryItem.netWeight + item.netWeight;
+                        const newGrossWeight = inventoryItem.grossWeight + (item.grossWeight || 0);
 
                         // Update inventory
                         await InventoryModel.update(inventoryItem._id, {
                             quantity: newQuantity,
                             netWeight: newNetWeight,
+                            grossWeight: newGrossWeight,
                             // Optionally update other fields if they've changed
                             costPrice: item.purchasePrice || item.costPrice || inventoryItem.costPrice,
                             packagingCost: item.packagingCost || inventoryItem.packagingCost
@@ -212,10 +216,13 @@ const VendorInvoiceModel = {
                         name: item.name || item.itemName || inventoryItem.name,
                         currentQuantity: inventoryItem.quantity,
                         currentNetWeight: inventoryItem.netWeight,
+                        currentGrossWeight: inventoryItem.grossWeight || 0,
                         newQuantity: inventoryItem.quantity + item.quantity,
                         newNetWeight: inventoryItem.netWeight + item.netWeight,
+                        newGrossWeight: (inventoryItem.grossWeight || 0) + (item.grossWeight || 0),
                         quantityChange: item.quantity,
                         netWeightChange: item.netWeight,
+                        grossWeightChange: item.grossWeight || 0,
                         purchasePrice: itemPrice,
                         exists: true
                     };
@@ -227,10 +234,13 @@ const VendorInvoiceModel = {
                         name: item.name || item.itemName || 'New Item',
                         currentQuantity: 0,
                         currentNetWeight: 0,
+                        currentGrossWeight: 0,
                         newQuantity: item.quantity,
                         newNetWeight: item.netWeight,
+                        newGrossWeight: item.grossWeight || 0,
                         quantityChange: item.quantity,
                         netWeightChange: item.netWeight,
+                        grossWeightChange: item.grossWeight || 0,
                         purchasePrice: itemPrice,
                         exists: false
                     };

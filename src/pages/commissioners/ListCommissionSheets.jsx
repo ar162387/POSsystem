@@ -2,21 +2,40 @@ import React, { useState, useEffect } from 'react';
 import { ipcRenderer } from 'electron';
 import CommissionSheetDetail from '../../components/CommissionSheetDetail';
 import Modal from '../../components/Modal';
-import EditCommissionSheetForm from '../../components/EditCommissionSheetForm';
 import DeleteConfirmation from '../../components/DeleteConfirmation';
+import Combobox from '../../components/common/Combobox';
 
 const ListCommissionSheets = () => {
     const [sheets, setSheets] = useState([]);
     const [filteredSheets, setFilteredSheets] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
+
+    // Commissioner search state
+    const [commissioners, setCommissioners] = useState([]);
+    const [selectedCommissioner, setSelectedCommissioner] = useState(null);
+
+    // Stats
+    const [totalCommission, setTotalCommission] = useState(0);
+    const [totalPaid, setTotalPaid] = useState(0);
+    const [remainingAmount, setRemainingAmount] = useState(0);
+
+    // Payment state
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentAmount, setPaymentAmount] = useState(0);
+    const [paymentMethod, setPaymentMethod] = useState('Cash');
+    const [paymentDate, setPaymentDate] = useState(() => {
+        const today = new Date();
+        return today.toISOString().split('T')[0];
+    });
+
+    // Payment history state
+    const [showPaymentHistory, setShowPaymentHistory] = useState(false);
+    const [paymentHistory, setPaymentHistory] = useState([]);
 
     // Modal states
     const [selectedSheet, setSelectedSheet] = useState(null);
     const [viewModalOpen, setViewModalOpen] = useState(false);
-    const [editModalOpen, setEditModalOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
 
@@ -27,41 +46,97 @@ const ListCommissionSheets = () => {
 
     useEffect(() => {
         refreshData();
+        fetchCommissioners();
     }, []);
 
-    // Apply filters when search or status filter changes
+    // Filter sheets when commissioner selection changes
     useEffect(() => {
-        applyFilters(sheets, search, statusFilter);
-    }, [search, statusFilter, sheets]);
-
-    const applyFilters = (allSheets, searchTerm, status) => {
-        let filtered = [...allSheets];
-
-        // Apply search filter
-        if (searchTerm) {
-            const lowerSearch = searchTerm.toLowerCase();
-            filtered = filtered.filter(sheet =>
-                (sheet.invoiceKey && sheet.invoiceKey.toLowerCase().includes(lowerSearch)) ||
-                (sheet.commissioner?.name && sheet.commissioner.name.toLowerCase().includes(lowerSearch))
-            );
+        if (selectedCommissioner) {
+            const filtered = sheets.filter(sheet => sheet.commissionerId === selectedCommissioner._id);
+            setFilteredSheets(filtered);
+            calculateStats(filtered);
+            fetchPaymentHistory(selectedCommissioner._id);
+        } else {
+            setFilteredSheets(sheets);
+            // For all commissioners, we need to fetch all payments
+            (async () => {
+                const allPayments = await fetchAllCommissionerPayments();
+                setPaymentHistory(allPayments);
+                calculateStats(sheets);
+            })();
         }
 
-        // Apply status filter (without modifying the original status)
-        if (status !== 'all') {
-            filtered = filtered.filter(sheet => sheet.status === status);
+        // Reset pagination
+        setTotalPages(Math.ceil((selectedCommissioner ? filteredSheets.length : sheets.length) / perPage));
+        setCurrentPage(1);
+    }, [selectedCommissioner, sheets]);
+
+    // Recalculate stats when payment history changes
+    useEffect(() => {
+        if (selectedCommissioner) {
+            const filtered = sheets.filter(sheet => sheet.commissionerId === selectedCommissioner._id);
+            calculateStats(filtered);
+        } else {
+            calculateStats(sheets);
         }
+    }, [paymentHistory]);
 
-        setFilteredSheets(filtered);
-        setTotalPages(Math.ceil(filtered.length / perPage));
-        setCurrentPage(1); // Reset to first page when filters change
+    const fetchCommissioners = async () => {
+        try {
+            setLoading(true);
+            const data = await ipcRenderer.invoke('get-commissioners', { page: 1, perPage: 1000 });
+            setCommissioners(data.commissioners || []);
+        } catch (err) {
+            console.error('Error fetching commissioners:', err);
+            setError('Failed to load commissioners.');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleSearchChange = (e) => {
-        setSearch(e.target.value);
+    const fetchPaymentHistory = async (commissionerId) => {
+        if (!commissionerId) return;
+
+        try {
+            setLoading(true);
+            // The response structure is { commissioner: {...}, payments: [...] }
+            const data = await ipcRenderer.invoke('get-commissioner-payments', commissionerId);
+            setPaymentHistory(data.payments || []);
+        } catch (err) {
+            console.error('Error fetching payment history:', err);
+            setError('Failed to load payment history.');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleStatusFilterChange = (e) => {
-        setStatusFilter(e.target.value);
+    const calculateStats = (sheetsData) => {
+        // Calculate total commission from commission sheets
+        const commission = sheetsData.reduce((total, sheet) => total + (sheet.commissionPrice || 0), 0);
+
+        // Calculate what's already recorded as received in commission sheets
+        const receivedFromSheets = sheetsData.reduce((total, sheet) => total + (sheet.receivedAmount || 0), 0);
+
+        // Calculate total from payment history (if any)
+        const receivedFromPayments = paymentHistory.reduce((total, payment) => total + (payment.amount || 0), 0);
+
+        // Total paid is the sum of both payment sources
+        const paid = receivedFromSheets + receivedFromPayments;
+
+        // Remaining is commission minus all payments
+        const remaining = Math.max(0, commission - paid);
+
+        setTotalCommission(commission);
+        setTotalPaid(paid);
+        setRemainingAmount(remaining);
+    };
+
+    const handleCommissionerChange = (commissioner) => {
+        setSelectedCommissioner(commissioner);
+    };
+
+    const getCommissionerDisplayValue = (commissioner) => {
+        return commissioner?.name || '';
     };
 
     const formatDate = (dateString) => {
@@ -76,22 +151,6 @@ const ListCommissionSheets = () => {
             currency: 'PKR',
             minimumFractionDigits: 2
         }).format(amount);
-    };
-
-    const getStatusLabel = (status) => {
-        switch (status) {
-            case 'paid': return 'Paid';
-            case 'not paid': return 'Not Paid';
-            default: return status;
-        }
-    };
-
-    const getStatusClass = (status) => {
-        switch (status) {
-            case 'paid': return 'bg-green-100 text-green-800';
-            case 'not paid': return 'bg-red-100 text-red-800';
-            default: return 'bg-gray-100 text-gray-800';
-        }
     };
 
     // Get current page items
@@ -113,67 +172,9 @@ const ListCommissionSheets = () => {
         }
     };
 
-    const handleEditSheet = async (sheet) => {
-        try {
-            // Fetch the latest data for this sheet to ensure we're editing the most current version
-            const latestSheetData = await ipcRenderer.invoke('get-commission-sheet', sheet._id);
-            setSelectedSheet(latestSheetData);
-            setEditModalOpen(true);
-        } catch (err) {
-            console.error('Error fetching sheet details:', err);
-            setError('Failed to load commission sheet details.');
-        }
-    };
-
     const handleDeleteSheet = (sheet) => {
         setSelectedSheet(sheet);
         setDeleteModalOpen(true);
-    };
-
-    const handleSaveEdit = async (updatedSheet) => {
-        try {
-            setActionLoading(true);
-
-            // Ensure commission price is an integer
-            if (updatedSheet.commissionPrice !== undefined) {
-                updatedSheet.commissionPrice = Math.round(updatedSheet.commissionPrice);
-            }
-
-            // Ensure proper pendingAmount and status calculation
-            const commissionPrice = updatedSheet.commissionPrice !== undefined
-                ? updatedSheet.commissionPrice
-                : selectedSheet.commissionPrice;
-
-            const receivedAmount = updatedSheet.receivedAmount !== undefined
-                ? updatedSheet.receivedAmount
-                : selectedSheet.receivedAmount;
-
-            // Calculate pending amount based on commission price
-            const pendingAmount = Math.max(0, commissionPrice - receivedAmount);
-
-            // Determine payment status - only 'paid' or 'not paid'
-            let status = pendingAmount <= 0 ? 'paid' : 'not paid';
-
-            // Send the update to the server
-            await ipcRenderer.invoke('update-commission-sheet', {
-                id: selectedSheet._id,
-                ...updatedSheet,
-                commissionPrice: updatedSheet.commissionPrice, // Ensure rounded value is sent
-                pendingAmount,
-                status
-            });
-
-            // Refresh all data from the server to ensure we have the latest status
-            await refreshData();
-
-            setEditModalOpen(false);
-            setSelectedSheet(null);
-        } catch (err) {
-            console.error('Error updating commission sheet:', err);
-            setError('Failed to update commission sheet.');
-        } finally {
-            setActionLoading(false);
-        }
     };
 
     const handleConfirmDelete = async () => {
@@ -194,6 +195,56 @@ const ListCommissionSheets = () => {
         }
     };
 
+    const handlePaymentSubmit = async () => {
+        if (!selectedCommissioner) {
+            setError('Please select a commissioner first.');
+            return;
+        }
+
+        if (paymentAmount <= 0) {
+            setError('Payment amount must be greater than zero.');
+            return;
+        }
+
+        if (paymentAmount > remainingAmount) {
+            setError('Payment amount cannot exceed the remaining amount.');
+            return;
+        }
+
+        try {
+            setActionLoading(true);
+
+            // Create payment object
+            const payment = {
+                commissionerId: selectedCommissioner._id,
+                amount: paymentAmount,
+                method: paymentMethod,
+                date: paymentDate,
+                createdAt: new Date()
+            };
+
+            // Add payment through IPC
+            const newPayment = await ipcRenderer.invoke('add-commissioner-payment', payment);
+
+            // Update local state with new payment
+            setPaymentHistory(prevPayments => [...prevPayments, newPayment]);
+
+            // Reset payment form
+            setPaymentAmount(0);
+            setPaymentMethod('Cash');
+            const today = new Date();
+            setPaymentDate(today.toISOString().split('T')[0]);
+
+            // Close modal
+            setShowPaymentModal(false);
+        } catch (err) {
+            console.error('Error adding payment:', err);
+            setError('Failed to add payment.');
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
     // Add a refresh function to re-fetch data from server
     const refreshData = async () => {
         try {
@@ -206,11 +257,42 @@ const ListCommissionSheets = () => {
 
             if (result && result.sheets) {
                 setSheets(result.sheets);
-                applyFilters(result.sheets, search, statusFilter);
+
+                // If there's a selected commissioner, filter the sheets
+                if (selectedCommissioner) {
+                    const filtered = result.sheets.filter(sheet =>
+                        sheet.commissionerId === selectedCommissioner._id
+                    );
+                    setFilteredSheets(filtered);
+                    calculateStats(filtered);
+                } else {
+                    setFilteredSheets(result.sheets);
+                    calculateStats(result.sheets);
+                }
+
+                setTotalPages(Math.ceil(
+                    (selectedCommissioner ? filteredSheets.length : result.sheets.length) / perPage
+                ));
             }
         } catch (err) {
             console.error('Error refreshing commission sheets:', err);
             setError('Failed to refresh data. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Add a new function to fetch all commissioner payments
+    const fetchAllCommissionerPayments = async () => {
+        try {
+            setLoading(true);
+            // Get all commissioner payments
+            const data = await ipcRenderer.invoke('get-all-commissioner-payments');
+            return data.payments || [];
+        } catch (err) {
+            console.error('Error fetching all commissioner payments:', err);
+            setError('Failed to load all commissioner payments.');
+            return [];
         } finally {
             setLoading(false);
         }
@@ -235,40 +317,23 @@ const ListCommissionSheets = () => {
                 </div>
             )}
 
-            {/* Filters */}
+            {/* Commissioner Search */}
             <div className="bg-white rounded-lg shadow p-4 mb-6">
                 <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
-                    <div className="w-full md:w-2/5">
-                        <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
-                            Search
+                    <div className="w-full md:w-2/3">
+                        <label htmlFor="commissioner" className="block text-sm font-medium text-gray-700 mb-1">
+                            Search Commissioner
                         </label>
-                        <input
-                            id="search"
-                            type="text"
-                            value={search}
-                            onChange={handleSearchChange}
-                            placeholder="Search by invoice # or commissioner..."
-                            className="w-full border rounded p-2"
-                            disabled={loading}
+                        <Combobox
+                            options={commissioners}
+                            value={selectedCommissioner}
+                            onChange={handleCommissionerChange}
+                            getDisplayValue={getCommissionerDisplayValue}
+                            placeholder="Search or select commissioner (leave empty for all)"
+                            className="w-full"
                         />
                     </div>
-                    <div className="w-full md:w-2/5">
-                        <label htmlFor="statusFilter" className="block text-sm font-medium text-gray-700 mb-1">
-                            Payment Status
-                        </label>
-                        <select
-                            id="statusFilter"
-                            value={statusFilter}
-                            onChange={handleStatusFilterChange}
-                            className="w-full border rounded p-2"
-                            disabled={loading}
-                        >
-                            <option value="all">All Statuses</option>
-                            <option value="paid">Paid</option>
-                            <option value="not paid">Not Paid</option>
-                        </select>
-                    </div>
-                    <div className="w-full md:w-1/5 flex items-end">
+                    <div className="w-full md:w-1/3 flex items-end">
                         <button
                             type="button"
                             onClick={refreshData}
@@ -284,6 +349,43 @@ const ListCommissionSheets = () => {
                 </div>
             </div>
 
+            {/* Stats Display */}
+            <div className="bg-white rounded-lg shadow p-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 border rounded-lg bg-blue-50">
+                        <h3 className="text-sm font-medium text-gray-500">Total Commission</h3>
+                        <p className="text-2xl font-bold text-gray-800">{formatCurrency(totalCommission)}</p>
+                    </div>
+                    <div className="p-4 border rounded-lg bg-green-50">
+                        <h3 className="text-sm font-medium text-gray-500">Total Paid</h3>
+                        <p className="text-2xl font-bold text-gray-800">{formatCurrency(totalPaid)}</p>
+                    </div>
+                    <div className="p-4 border rounded-lg bg-red-50">
+                        <h3 className="text-sm font-medium text-gray-500">Remaining Amount</h3>
+                        <p className="text-2xl font-bold text-gray-800">{formatCurrency(remainingAmount)}</p>
+                    </div>
+                </div>
+
+                {/* Show payment options only when a commissioner is selected */}
+                {selectedCommissioner && (
+                    <div className="mt-4 flex justify-end space-x-4">
+                        <button
+                            onClick={() => setShowPaymentHistory(true)}
+                            className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded"
+                        >
+                            Payment History
+                        </button>
+                        <button
+                            onClick={() => setShowPaymentModal(true)}
+                            className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
+                            disabled={remainingAmount <= 0}
+                        >
+                            Pay Commission
+                        </button>
+                    </div>
+                )}
+            </div>
+
             {/* Commission Sheets Table */}
             <div className="bg-white rounded-lg shadow overflow-hidden">
                 {loading ? (
@@ -292,7 +394,7 @@ const ListCommissionSheets = () => {
                     </div>
                 ) : filteredSheets.length === 0 ? (
                     <div className="text-center p-8 text-gray-500">
-                        No commission sheets found. {search || statusFilter !== 'all' ? 'Try adjusting your filters.' : ''}
+                        No commission sheets found. {selectedCommissioner ? `for ${selectedCommissioner.name}` : ''}
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -315,17 +417,11 @@ const ListCommissionSheets = () => {
                                         Total Amount
                                     </th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Commission
+                                        Commission %
                                     </th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        <div className="relative group">
-                                            <span>Pending Commission</span>
-                                            <div className="absolute hidden group-hover:block bg-gray-800 text-white p-2 rounded text-xs w-48 left-0 top-6 z-10">
-                                                Amount of commission payment remaining to be paid.
-                                            </div>
-                                        </div>
+                                        Commission
                                     </th>
-
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         Actions
                                     </th>
@@ -350,12 +446,11 @@ const ListCommissionSheets = () => {
                                             {formatCurrency(sheet.totalPrice)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {formatCurrency(sheet.commissionPrice)}
+                                            {sheet.tradersCommissionPercent}%
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {formatCurrency(sheet.pendingAmount)}
+                                            {formatCurrency(sheet.commissionPrice)}
                                         </td>
-
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                             <div className="flex space-x-2">
                                                 <button
@@ -366,15 +461,6 @@ const ListCommissionSheets = () => {
                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleEditSheet(sheet)}
-                                                    className="text-indigo-600 hover:text-indigo-900"
-                                                    title="Edit"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                     </svg>
                                                 </button>
                                                 <button
@@ -443,19 +529,6 @@ const ListCommissionSheets = () => {
                 <CommissionSheetDetail sheet={selectedSheet} />
             </Modal>
 
-            {/* Edit Commission Sheet Modal */}
-            <Modal
-                isOpen={editModalOpen}
-                onClose={() => setEditModalOpen(false)}
-                title="Edit Commission Sheet"
-            >
-                <EditCommissionSheetForm
-                    sheet={selectedSheet}
-                    onSave={handleSaveEdit}
-                    loading={actionLoading}
-                />
-            </Modal>
-
             {/* Delete Confirmation Modal */}
             <DeleteConfirmation
                 isOpen={deleteModalOpen}
@@ -465,6 +538,144 @@ const ListCommissionSheets = () => {
                 message={`Are you sure you want to delete invoice #${selectedSheet?.invoiceKey || ''}? This action cannot be undone.`}
                 loading={actionLoading}
             />
+
+            {/* Pay Commission Modal */}
+            <Modal
+                isOpen={showPaymentModal}
+                onClose={() => setShowPaymentModal(false)}
+                title="Pay Commission"
+            >
+                <div className="p-4">
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Commissioner
+                        </label>
+                        <input
+                            type="text"
+                            value={selectedCommissioner?.name || ''}
+                            disabled
+                            className="w-full border rounded p-2 bg-gray-100"
+                        />
+                    </div>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Remaining Amount
+                        </label>
+                        <input
+                            type="text"
+                            value={formatCurrency(remainingAmount)}
+                            disabled
+                            className="w-full border rounded p-2 bg-gray-100"
+                        />
+                    </div>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Payment Amount
+                        </label>
+                        <input
+                            type="number"
+                            value={paymentAmount}
+                            onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
+                            className="w-full border rounded p-2"
+                            min="0"
+                            max={remainingAmount}
+                        />
+                    </div>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Payment Method
+                        </label>
+                        <select
+                            value={paymentMethod}
+                            onChange={(e) => setPaymentMethod(e.target.value)}
+                            className="w-full border rounded p-2"
+                        >
+                            <option value="Cash">Cash</option>
+                            <option value="Online">Online</option>
+                            <option value="Cheque">Cheque</option>
+                        </select>
+                    </div>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Payment Date
+                        </label>
+                        <input
+                            type="date"
+                            value={paymentDate}
+                            onChange={(e) => setPaymentDate(e.target.value)}
+                            className="w-full border rounded p-2"
+                        />
+                    </div>
+
+                    <div className="flex justify-end mt-6">
+                        <button
+                            onClick={() => setShowPaymentModal(false)}
+                            className="bg-gray-300 text-gray-700 px-4 py-2 rounded mr-2"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handlePaymentSubmit}
+                            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                            disabled={actionLoading || paymentAmount <= 0 || paymentAmount > remainingAmount}
+                        >
+                            {actionLoading ? 'Processing...' : 'Submit Payment'}
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Payment History Modal */}
+            <Modal
+                isOpen={showPaymentHistory}
+                onClose={() => setShowPaymentHistory(false)}
+                title={`Payment History - ${selectedCommissioner?.name || ''}`}
+            >
+                <div className="p-4">
+                    {paymentHistory.length === 0 ? (
+                        <div className="text-center p-8 text-gray-500">
+                            No payment history found.
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Date
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Amount
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Payment Method
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {paymentHistory.map((payment, index) => (
+                                        <tr key={index} className="hover:bg-gray-50">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {formatDate(payment.date)}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {formatCurrency(payment.amount)}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {payment.method}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            </Modal>
         </div>
     );
 };

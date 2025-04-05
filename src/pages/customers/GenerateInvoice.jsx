@@ -93,6 +93,20 @@ const GenerateInvoice = () => {
         const fetchInventory = async () => {
             try {
                 const result = await ipcRenderer.invoke('get-inventory', { page: 1, perPage: 100 });
+                console.log('Fetched inventory items:', result.items?.length || 0);
+
+                // Log the first few items to check their structure
+                if (result.items && result.items.length > 0) {
+                    console.log('Sample inventory item:', {
+                        itemId: result.items[0].itemId,
+                        name: result.items[0].name,
+                        quantity: result.items[0].quantity,
+                        netWeight: result.items[0].netWeight,
+                        grossWeight: result.items[0].grossWeight,
+                        hasGrossWeight: result.items[0].hasOwnProperty('grossWeight')
+                    });
+                }
+
                 setInventoryItems(result.items || []);
             } catch (err) {
                 console.error('Error fetching inventory:', err);
@@ -248,6 +262,15 @@ const GenerateInvoice = () => {
             return;
         }
 
+        console.log('Selected inventory item:', {
+            itemId: item.itemId,
+            name: item.name,
+            quantity: item.quantity,
+            netWeight: item.netWeight,
+            grossWeight: item.grossWeight,
+            hasGrossWeight: item.hasOwnProperty('grossWeight')
+        });
+
         // Add the item to the selected items list with default values
         const newItem = {
             _id: item._id,
@@ -256,10 +279,14 @@ const GenerateInvoice = () => {
             sellingPrice: item.sellingPrice || 0,
             quantity: 1,
             netWeight: 1,
+            grossWeight: 1,
             packagingCost: 0,
             availableQuantity: item.quantity,
-            maxWeight: item.netWeight || 0
+            maxWeight: item.netWeight || 0,
+            maxGrossWeight: item.grossWeight || 0
         };
+
+        console.log('Created invoice item:', newItem);
 
         setSelectedItems([...selectedItems, newItem]);
         setCurrentItemSearch('');
@@ -306,6 +333,23 @@ const GenerateInvoice = () => {
 
             item.netWeight = floatValue;
         }
+        else if (field === 'grossWeight') {
+            const floatValue = parseFloat(value) || 0;
+
+            // Optional: Check if we have enough gross weight available
+            if (item.maxGrossWeight > 0 && floatValue > item.maxGrossWeight) {
+                setItemErrors({
+                    ...itemErrors,
+                    [index]: `Maximum gross weight is ${item.maxGrossWeight} kg`
+                });
+            } else {
+                const newErrors = { ...itemErrors };
+                delete newErrors[index];
+                setItemErrors(newErrors);
+            }
+
+            item.grossWeight = floatValue;
+        }
         else if (field === 'sellingPrice' || field === 'packagingCost') {
             // Convert to float first, then round to integer
             item[field] = Math.round(parseFloat(value) || 0);
@@ -345,12 +389,14 @@ const GenerateInvoice = () => {
             item.quantity <= 0 ||
             !item.netWeight ||
             item.netWeight <= 0 ||
+            !item.grossWeight ||
+            item.grossWeight <= 0 ||
             !item.sellingPrice ||
             item.sellingPrice <= 0
         );
 
         if (invalidItems) {
-            setError('Please ensure all items have valid quantity, net weight, and selling price');
+            setError('Please ensure all items have valid quantity, net weight, gross weight, and selling price');
             return false;
         }
 
@@ -378,6 +424,7 @@ const GenerateInvoice = () => {
             name: item.name,
             quantity: item.quantity,
             netWeight: item.netWeight,
+            grossWeight: item.grossWeight,
             sellingPrice: item.sellingPrice,
             packagingCost: item.packagingCost,
             total: calculateItemTotal(item)
@@ -422,13 +469,27 @@ const GenerateInvoice = () => {
             // Try to update inventory quantities, but don't fail if the handler isn't implemented
             try {
                 for (const item of selectedItems) {
+                    console.log('Updating inventory for item:', item.itemId);
+                    console.log('Original values:', {
+                        quantity: item.availableQuantity,
+                        netWeight: item.maxWeight,
+                        grossWeight: item.maxGrossWeight
+                    });
+                    console.log('New values:', {
+                        quantity: item.availableQuantity - item.quantity,
+                        netWeight: Math.max(0, item.maxWeight - item.netWeight),
+                        grossWeight: Math.max(0, item.maxGrossWeight - item.grossWeight)
+                    });
+
                     await ipcRenderer.invoke('update-inventory-quantity', {
                         itemId: item._id,
                         quantity: item.availableQuantity - item.quantity,
-                        netWeight: Math.max(0, item.maxWeight - item.netWeight)
+                        netWeight: Math.max(0, item.maxWeight - item.netWeight),
+                        grossWeight: Math.max(0, item.maxGrossWeight - item.grossWeight)
                     });
                 }
             } catch (inventoryError) {
+                console.error('Inventory update error:', inventoryError);
                 console.log('Inventory update not implemented yet:', inventoryError.message);
                 // Don't throw the error - we want to continue even if inventory update fails
             }
@@ -591,7 +652,8 @@ const GenerateInvoice = () => {
                                     <tr>
                                         <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">Item</th>
                                         <th className="px-4 py-2 text-right text-sm font-medium text-gray-500">Qty</th>
-                                        <th className="px-4 py-2 text-right text-sm font-medium text-gray-500">Weight</th>
+                                        <th className="px-4 py-2 text-right text-sm font-medium text-gray-500">Net Weight</th>
+                                        <th className="px-4 py-2 text-right text-sm font-medium text-gray-500">Gross Weight</th>
                                         <th className="px-4 py-2 text-right text-sm font-medium text-gray-500">Price</th>
                                         <th className="px-4 py-2 text-right text-sm font-medium text-gray-500">Total</th>
                                     </tr>
@@ -602,6 +664,7 @@ const GenerateInvoice = () => {
                                             <td className="px-4 py-2">{item.name}</td>
                                             <td className="px-4 py-2 text-right">{item.quantity}</td>
                                             <td className="px-4 py-2 text-right">{item.netWeight} kg</td>
+                                            <td className="px-4 py-2 text-right">{item.grossWeight} kg</td>
                                             <td className="px-4 py-2 text-right">{formatCurrency(item.sellingPrice)}/kg</td>
                                             <td className="px-4 py-2 text-right">{formatCurrency(item.total)}</td>
                                         </tr>
@@ -877,6 +940,9 @@ const GenerateInvoice = () => {
                                                 Net Weight (kg)
                                             </th>
                                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Gross Weight (kg)
+                                            </th>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                 Selling Price (per kg)
                                             </th>
                                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -927,6 +993,17 @@ const GenerateInvoice = () => {
                                                             type="number"
                                                             min="0.01"
                                                             step="0.01"
+                                                            value={item.grossWeight}
+                                                            onChange={(e) => handleItemChange(index, 'grossWeight', e.target.value)}
+                                                            className="w-24 px-2 py-1 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                            required
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        <input
+                                                            type="number"
+                                                            min="0.01"
+                                                            step="0.01"
                                                             value={item.sellingPrice}
                                                             onChange={(e) => handleItemChange(index, 'sellingPrice', e.target.value)}
                                                             className="w-24 px-2 py-1 border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -962,8 +1039,7 @@ const GenerateInvoice = () => {
                                             );
                                         })}
                                         <tr className="bg-gray-50">
-                                            <td colSpan={4} className="px-4 py-2 text-right font-medium">
-                                                Labor and Transport Cost:
+                                            <td colSpan={4} className="px-4 py-2 text-right font-medium">Labor and Transport Cost:
                                             </td>
                                             <td className="px-4 py-2">
                                                 <input

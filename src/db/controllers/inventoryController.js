@@ -17,6 +17,7 @@ const InventoryController = {
                 ...itemData,
                 quantity: parseFloat(itemData.quantity || 0),
                 netWeight: parseFloat(itemData.netWeight || 0),
+                grossWeight: parseFloat(itemData.grossWeight || 0),
                 costPrice: Math.round(parseFloat(itemData.costPrice || 0)),
                 sellingPrice: Math.round(parseFloat(itemData.sellingPrice || 0)),
                 inColdStorage: Boolean(itemData.inColdStorage || false),
@@ -58,6 +59,19 @@ const InventoryController = {
                 sort: { createdAt: -1 }
             });
 
+            // Log a sample item to debug
+            if (items && items.length > 0) {
+                console.log('Sample inventory item from getInventory controller:', {
+                    itemId: items[0].itemId,
+                    name: items[0].name,
+                    quantity: items[0].quantity,
+                    netWeight: items[0].netWeight,
+                    grossWeight: items[0].grossWeight,
+                    hasGrossWeight: items[0].hasOwnProperty('grossWeight'),
+                    keys: Object.keys(items[0])
+                });
+            }
+
             return {
                 items,
                 total: count,
@@ -85,6 +99,10 @@ const InventoryController = {
 
             if (updateFields.hasOwnProperty('netWeight')) {
                 processedData.netWeight = parseFloat(updateFields.netWeight || 0);
+            }
+
+            if (updateFields.hasOwnProperty('grossWeight')) {
+                processedData.grossWeight = parseFloat(updateFields.grossWeight || 0);
             }
 
             // Process prices as integers if present

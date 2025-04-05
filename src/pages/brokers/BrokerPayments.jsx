@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ipcRenderer } from 'electron';
 import { useAuth } from '../../context/AuthContext.jsx';
 
@@ -17,13 +17,23 @@ import {
 
 const BrokerPayments = () => {
     const { user } = useAuth();
+
+    // State for invoices and brokers data
     const [invoices, setInvoices] = useState([]);
     const [brokers, setBrokers] = useState([]);
     const [filteredInvoices, setFilteredInvoices] = useState([]);
+
+    // State for broker search and filtering
     const [brokerSearch, setBrokerSearch] = useState('');
-    const [customerSearch, setCustomerSearch] = useState('');
-    const [brokerFilter, setBrokerFilter] = useState('all');
-    const [statusFilter, setStatusFilter] = useState('all');
+    const [searchResults, setSearchResults] = useState([]);
+    const [selectedBroker, setSelectedBroker] = useState(null);
+    const [showSearchResults, setShowSearchResults] = useState(false);
+
+    // Broker commission summary 
+    const [brokerSummary, setBrokerSummary] = useState(null);
+    const [loadingSummary, setLoadingSummary] = useState(false);
+
+    // UI state
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -37,19 +47,18 @@ const BrokerPayments = () => {
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
 
-    // Delete confirmation modal
-    const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [invoiceToDelete, setInvoiceToDelete] = useState(null);
-    const [isDeleting, setIsDeleting] = useState(false);
-
     // Broker payment modal
     const [showPaymentModal, setShowPaymentModal] = useState(false);
-    const [selectedBrokerInvoice, setSelectedBrokerInvoice] = useState(null);
-    const [brokerPaidAmount, setBrokerPaidAmount] = useState(0);
-    const [brokerPaymentDate, setBrokerPaymentDate] = useState('');
-    const [brokerRemainingAmount, setBrokerRemainingAmount] = useState(0);
+    const [paymentAmount, setPaymentAmount] = useState(0);
+    const [paymentMethod, setPaymentMethod] = useState('cash');
+    const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
     const [isUpdatingPayment, setIsUpdatingPayment] = useState(false);
     const [paymentError, setPaymentError] = useState('');
+
+    // Payment history modal
+    const [showPaymentHistoryModal, setShowPaymentHistoryModal] = useState(false);
+    const [paymentHistory, setPaymentHistory] = useState([]);
+    const [loadingPaymentHistory, setLoadingPaymentHistory] = useState(false);
 
     // Fetch data when success message changes (indicating a successful operation)
     useEffect(() => {
@@ -73,7 +82,13 @@ const BrokerPayments = () => {
                 .sort((a, b) => new Date(b.issueDate) - new Date(a.issueDate));
 
             setInvoices(processedInvoices);
-            applyFilters(processedInvoices, brokerSearch, customerSearch, brokerFilter, statusFilter);
+            setFilteredInvoices(processedInvoices);
+            setTotalPages(Math.ceil(processedInvoices.length / perPage));
+
+            // If we have a selected broker, update the broker summary
+            if (selectedBroker) {
+                await fetchBrokerSummary(selectedBroker._id);
+            }
         } catch (err) {
             console.error('Error fetching data:', err);
             setError('Failed to load data. Please try again.');
@@ -82,85 +97,117 @@ const BrokerPayments = () => {
         }
     };
 
-    const applyFilters = (invoiceList, brokerSearchTerm, customerSearchTerm, brokerId, status) => {
-        let filtered = [...invoiceList];
+    // Calculate aggregated statistics for displayed invoices
+    const stats = useMemo(() => {
+        // If we have a broker summary for the selected broker, use that
+        if (selectedBroker && brokerSummary && brokerSummary.brokerId === selectedBroker._id) {
+            return {
+                totalCommission: brokerSummary.totalCommission,
+                totalPaid: brokerSummary.totalPaid,
+                totalRemaining: brokerSummary.totalRemaining
+            };
+        }
 
-        // Apply broker search filter
-        if (brokerSearchTerm) {
-            filtered = filtered.filter(invoice =>
-                invoice.brokerName?.toLowerCase().includes(brokerSearchTerm.toLowerCase())
+        // Otherwise calculate from displayed invoices
+        const displayedInvoices = selectedBroker
+            ? filteredInvoices.filter(inv => inv.brokerId === selectedBroker._id)
+            : filteredInvoices;
+
+        // Calculate total commission from all invoices
+        const totalCommission = displayedInvoices.reduce((acc, inv) => {
+            return acc + parseFloat(inv.commissionAmount || 0);
+        }, 0);
+
+        // If a broker is selected, get their total paid amount from their record
+        let totalPaid = 0;
+        if (selectedBroker) {
+            totalPaid = parseFloat(selectedBroker.totalPaid || 0);
+        } else {
+            // If no broker is selected, sum up totalPaid from all brokers
+            const uniqueBrokerIds = [...new Set(displayedInvoices.map(inv => inv.brokerId))];
+            const relevantBrokers = brokers.filter(broker => uniqueBrokerIds.includes(broker._id));
+            totalPaid = relevantBrokers.reduce((acc, broker) => acc + parseFloat(broker.totalPaid || 0), 0);
+        }
+
+        // Calculate remaining amount
+        const totalRemaining = Math.max(0, totalCommission - totalPaid);
+
+        return {
+            totalCommission,
+            totalPaid,
+            totalRemaining
+        };
+    }, [filteredInvoices, selectedBroker, brokers, brokerSummary]);
+
+    // Handle broker search input change
+    const handleBrokerSearchChange = (e) => {
+        const searchTerm = e.target.value;
+        setBrokerSearch(searchTerm);
+
+        if (searchTerm.trim() === '') {
+            setShowSearchResults(false);
+            setSearchResults([]);
+            setSelectedBroker(null);
+            setBrokerSummary(null); // Clear the broker summary
+            setFilteredInvoices(invoices);
+        } else {
+            const results = brokers.filter(broker =>
+                broker.name.toLowerCase().includes(searchTerm.toLowerCase())
             );
+            setSearchResults(results);
+            setShowSearchResults(true);
         }
+    };
 
-        // Apply customer search filter
-        if (customerSearchTerm) {
-            filtered = filtered.filter(invoice =>
-                invoice.customerName?.toLowerCase().includes(customerSearchTerm.toLowerCase())
-            );
-        }
+    // Handle selection of a broker from search results
+    const handleSelectBroker = (broker) => {
+        setSelectedBroker(broker);
+        setBrokerSearch(broker.name);
+        setShowSearchResults(false);
 
-        // Apply broker ID filter
-        if (brokerId && brokerId !== 'all') {
-            filtered = filtered.filter(invoice => invoice.brokerId === brokerId);
-        }
-
-        // Apply status filter
-        if (status !== 'all') {
-            if (status === 'partially_paid') {
-                filtered = filtered.filter(invoice =>
-                    invoice.brokerPaidAmount > 0 && invoice.brokerRemainingAmount > 0
-                );
-            } else if (status === 'paid') {
-                filtered = filtered.filter(invoice => invoice.brokerPaymentStatus === 'paid');
-            } else if (status === 'not_paid') {
-                filtered = filtered.filter(invoice =>
-                    invoice.brokerPaymentStatus === 'not paid' && invoice.brokerPaidAmount === 0
-                );
-            }
-        }
-
+        // Filter invoices for the selected broker
+        const filtered = invoices.filter(invoice => invoice.brokerId === broker._id);
         setFilteredInvoices(filtered);
         setTotalPages(Math.ceil(filtered.length / perPage));
-        setCurrentPage(1); // Reset to first page when filters change
+        setCurrentPage(1);
+
+        // Load the broker's commission summary
+        fetchBrokerSummary(broker._id);
+
+        // Load the broker's payment history to have it ready
+        handleFetchPaymentHistory(broker._id, false);
     };
 
-    // Apply filters when search terms or status filter changes
-    useEffect(() => {
-        applyFilters(invoices, brokerSearch, customerSearch, brokerFilter, statusFilter);
-    }, [brokerSearch, customerSearch, brokerFilter, statusFilter, invoices]);
-
-    const handleBrokerSearchChange = (e) => {
-        setBrokerSearch(e.target.value);
+    // Fetch broker commission summary
+    const fetchBrokerSummary = async (brokerId) => {
+        try {
+            setLoadingSummary(true);
+            const summary = await ipcRenderer.invoke('get-broker-commission-summary', brokerId);
+            setBrokerSummary(summary);
+        } catch (err) {
+            console.error('Error fetching broker summary:', err);
+            setError('Failed to load broker commission summary.');
+        } finally {
+            setLoadingSummary(false);
+        }
     };
 
-    const handleCustomerSearchChange = (e) => {
-        setCustomerSearch(e.target.value);
-    };
-
-    const handleBrokerFilterChange = (e) => {
-        setBrokerFilter(e.target.value);
-    };
-
-    const handleStatusFilterChange = (e) => {
-        setStatusFilter(e.target.value);
+    // Clear broker filter
+    const handleClearSearch = () => {
+        setBrokerSearch('');
+        setShowSearchResults(false);
+        setSearchResults([]);
+        setSelectedBroker(null);
+        setBrokerSummary(null); // Clear the broker summary
+        setFilteredInvoices(invoices);
+        setTotalPages(Math.ceil(invoices.length / perPage));
+        setCurrentPage(1);
     };
 
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
         const date = new Date(dateString);
         return date.toLocaleDateString();
-    };
-
-    const getBrokerPaymentStatusLabel = (invoice) => {
-        if (invoice.brokerPaymentStatus === 'paid') return 'Paid';
-        if (invoice.brokerPaidAmount > 0 && invoice.brokerRemainingAmount > 0) return 'Partially Paid';
-        return 'Not Paid';
-    };
-
-    const getBrokerPaymentStatusClass = (invoice) => {
-        if (invoice.brokerPaymentStatus === 'paid') return 'bg-green-100 text-green-800';
-        if (invoice.brokerPaidAmount > 0 && invoice.brokerRemainingAmount > 0) return 'bg-amber-100 text-amber-800';
-        return 'bg-red-100 text-red-800';
     };
 
     const handleViewInvoice = async (invoice) => {
@@ -185,48 +232,49 @@ const BrokerPayments = () => {
         }
     };
 
-    const handleUpdatePayment = (invoice) => {
-        setSelectedBrokerInvoice(invoice);
-        setBrokerPaidAmount(invoice.brokerPaidAmount || 0);
-        setBrokerRemainingAmount(invoice.brokerRemainingAmount || invoice.commissionAmount || 0);
-        setBrokerPaymentDate(invoice.brokerPaymentDate ? new Date(invoice.brokerPaymentDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
-        setShowPaymentModal(true);
+    // Open payment modal for the selected broker
+    const handleOpenPaymentModal = () => {
+        if (!selectedBroker) {
+            setError('Please select a broker first');
+            return;
+        }
+
+        setPaymentAmount(0);
+        setPaymentMethod('cash');
+        setPaymentDate(new Date().toISOString().split('T')[0]);
         setPaymentError('');
+        setShowPaymentModal(true);
     };
 
-    const handleBrokerPaidAmountChange = (e) => {
-        const value = parseFloat(e.target.value) || 0;
-        setBrokerPaidAmount(value);
-
-        if (selectedBrokerInvoice) {
-            const total = parseFloat(selectedBrokerInvoice.commissionAmount || 0);
-            const remaining = Math.max(0, total - value);
-            setBrokerRemainingAmount(remaining);
-        }
+    // Handle payment amount change
+    const handlePaymentAmountChange = (e) => {
+        setPaymentAmount(parseFloat(e.target.value) || 0);
     };
 
+    // Validate payment form
     const validatePaymentForm = () => {
-        const commissionAmount = parseFloat(selectedBrokerInvoice?.commissionAmount || 0);
-        const paid = parseFloat(brokerPaidAmount || 0);
-
-        if (paid < 0) {
-            setPaymentError('Payment amount cannot be negative');
+        if (paymentAmount <= 0) {
+            setPaymentError('Payment amount must be greater than zero');
             return false;
         }
 
-        if (paid > commissionAmount) {
-            setPaymentError('Payment amount cannot exceed commission amount');
+        // Get remaining amount from stats (which uses broker summary if available)
+        const remainingAmount = stats.totalRemaining;
+
+        if (paymentAmount > remainingAmount) {
+            setPaymentError(`Payment amount cannot exceed total remaining commission (${formatCurrency(remainingAmount)})`);
             return false;
         }
 
-        if (!brokerPaymentDate && paid === commissionAmount) {
-            setPaymentError('Payment date is required for fully paid commissions');
+        if (!paymentDate) {
+            setPaymentError('Payment date is required');
             return false;
         }
 
         return true;
     };
 
+    // Submit broker payment
     const handleSubmitPayment = async (e) => {
         e.preventDefault();
 
@@ -238,88 +286,78 @@ const BrokerPayments = () => {
             setIsUpdatingPayment(true);
             setPaymentError('');
 
-            const commissionAmount = parseFloat(selectedBrokerInvoice.commissionAmount);
-            const paidAmount = parseFloat(brokerPaidAmount);
-
-            // Mark payment status based on amount
-            // If paid amount is less than or equal to 1, mark as paid
-            // If paid amount is greater than 1, leave as not paid or partially paid
-            let paymentStatus;
-            if (paidAmount <= 1) {
-                paymentStatus = 'paid';
-            } else if (paidAmount >= commissionAmount) {
-                paymentStatus = 'partially_paid';
-            } else if (paidAmount > 0) {
-                paymentStatus = 'partially_paid';
-            } else {
-                paymentStatus = 'not_paid';
-            }
-
-            // Call the backend to update the broker payment
-            await ipcRenderer.invoke('update-broker-payment', {
-                invoiceId: selectedBrokerInvoice._id,
-                brokerPaidAmount: paidAmount,
-                brokerPaymentDate: paymentStatus === 'paid' ? brokerPaymentDate : null,
-                brokerPaymentStatus: paymentStatus,
-                commissionAmount: commissionAmount
+            // Call backend to process broker payment
+            const result = await ipcRenderer.invoke('update-broker-commission-payment', {
+                brokerId: selectedBroker._id,
+                brokerName: selectedBroker.name,
+                paymentAmount: paymentAmount,
+                paymentMethod: paymentMethod,
+                paymentDate: paymentDate
             });
 
-            // Show success message
-            setSuccess(`Broker payment for invoice ${selectedBrokerInvoice.invoiceNumber} updated successfully.`);
+            if (result && result.success) {
+                setSuccess(`Payment of ${formatCurrency(paymentAmount)} processed for ${selectedBroker.name}`);
+                setShowPaymentModal(false);
 
-            // Close the payment modal
-            setShowPaymentModal(false);
-            setSelectedBrokerInvoice(null);
+                // Refresh data after payment
+                await fetchData();
 
-            // Refresh will be handled by the useEffect that watches success
+                // Also update broker summary after payment
+                await fetchBrokerSummary(selectedBroker._id);
+            } else {
+                const errorMessage = result?.message || 'Failed to process payment';
+                setPaymentError(errorMessage);
+            }
         } catch (err) {
-            console.error('Error updating broker payment:', err);
-            setPaymentError('Failed to update broker payment. Please try again.');
+            console.error('Error processing broker payment:', err);
+            setPaymentError('Failed to process payment. Please try again.');
         } finally {
             setIsUpdatingPayment(false);
         }
     };
 
-    const handleClosePaymentModal = () => {
-        setShowPaymentModal(false);
-        setSelectedBrokerInvoice(null);
-        setPaymentError('');
-    };
-
-    const promptDeleteInvoice = (invoice) => {
-        setInvoiceToDelete(invoice);
-        setShowDeleteModal(true);
-    };
-
-    const handleDeleteInvoice = async () => {
-        if (!invoiceToDelete) return;
-
+    // Fetch payment history without showing modal
+    const handleFetchPaymentHistory = async (brokerId, showModal = true) => {
         try {
-            setIsDeleting(true);
-            setError('');
+            setLoadingPaymentHistory(true);
 
-            // Call the backend to delete the invoice
-            await ipcRenderer.invoke('delete-invoice', invoiceToDelete._id);
+            // Fetch payment history for the selected broker
+            const history = await ipcRenderer.invoke('get-broker-payment-history', brokerId);
 
-            // Show success message
-            setSuccess(`Invoice ${invoiceToDelete.invoiceNumber} deleted successfully.`);
-
-            // Close the delete modal
-            setShowDeleteModal(false);
-            setInvoiceToDelete(null);
-
-            // Data refresh is handled by the useEffect that watches success message
+            setPaymentHistory(history || []);
+            if (showModal) {
+                setShowPaymentHistoryModal(true);
+            }
         } catch (err) {
-            console.error('Error deleting invoice:', err);
-            setError('Failed to delete invoice. Please try again.');
+            console.error('Error fetching payment history:', err);
+            setError('Failed to load payment history. Please try again.');
         } finally {
-            setIsDeleting(false);
+            setLoadingPaymentHistory(false);
         }
+    };
+
+    // View payment history for the selected broker
+    const handleViewPaymentHistory = () => {
+        if (!selectedBroker) {
+            setError('Please select a broker first');
+            return;
+        }
+
+        handleFetchPaymentHistory(selectedBroker._id, true);
     };
 
     const handleCloseModal = () => {
         setShowInvoiceModal(false);
         setSelectedInvoice(null);
+    };
+
+    const handleClosePaymentModal = () => {
+        setShowPaymentModal(false);
+        setPaymentError('');
+    };
+
+    const handleClosePaymentHistoryModal = () => {
+        setShowPaymentHistoryModal(false);
     };
 
     // Get current page of invoices
@@ -340,16 +378,20 @@ const BrokerPayments = () => {
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl font-bold">Broker Payments</h1>
+                <h1 className="text-2xl font-bold">Broker Commissions</h1>
             </div>
 
             {/* Alert Messages */}
             {error && <Alert type="error" message={error} onClose={() => setError('')} className="mb-4" />}
             {success && <Alert type="success" message={success} onClose={() => setSuccess('')} className="mb-4" />}
 
-            {/* Filters and Search */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <div>
+            {/* Broker Search */}
+            <div className="mb-6 bg-white p-4 rounded-lg shadow">
+                <div className="relative">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Search Broker
+                    </label>
+                    <div className="flex">
                     <Input
                         type="text"
                         placeholder="Search by broker name..."
@@ -357,42 +399,73 @@ const BrokerPayments = () => {
                         onChange={handleBrokerSearchChange}
                         className="w-full"
                     />
+                        {selectedBroker && (
+                            <button
+                                onClick={handleClearSearch}
+                                className="ml-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                            >
+                                Clear
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Search Results Dropdown */}
+                    {showSearchResults && searchResults.length > 0 && (
+                        <div className="absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md max-h-60 overflow-auto">
+                            {searchResults.map(broker => (
+                                <div
+                                    key={broker._id}
+                                    className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                                    onClick={() => handleSelectBroker(broker)}
+                                >
+                                    {broker.name}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Stats Summary */}
+            <div className="mb-6 bg-white p-4 rounded-lg shadow">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                        <h3 className="text-lg font-semibold mb-2">
+                            {selectedBroker ? `Broker: ${selectedBroker.name}` : 'All Brokers'}
+                        </h3>
                 </div>
                 <div>
-                    <Input
-                        type="text"
-                        placeholder="Search by customer name..."
-                        value={customerSearch}
-                        onChange={handleCustomerSearchChange}
-                        className="w-full"
-                    />
+                        <p className="text-sm text-gray-500">Total Commission</p>
+                        <p className="text-xl font-bold text-gray-800">{formatCurrency(stats.totalCommission)}</p>
                 </div>
                 <div>
-                    <Select
-                        value={brokerFilter}
-                        onChange={handleBrokerFilterChange}
-                        className="w-full"
-                    >
-                        <option value="all">All Brokers</option>
-                        {brokers.map(broker => (
-                            <option key={broker._id} value={broker._id}>
-                                {broker.name}
-                            </option>
-                        ))}
-                    </Select>
+                        <p className="text-sm text-gray-500">Total Paid</p>
+                        <p className="text-xl font-bold text-green-600">{formatCurrency(stats.totalPaid)}</p>
                 </div>
                 <div>
-                    <Select
-                        value={statusFilter}
-                        onChange={handleStatusFilterChange}
-                        className="w-full"
-                    >
-                        <option value="all">All Statuses</option>
-                        <option value="paid">Paid</option>
-                        <option value="partially_paid">Partially Paid</option>
-                        <option value="not_paid">Not Paid</option>
-                    </Select>
+                        <p className="text-sm text-gray-500">Total Remaining</p>
+                        <p className="text-xl font-bold text-red-600">{formatCurrency(stats.totalRemaining)}</p>
+                    </div>
                 </div>
+
+                {/* Action buttons - only visible when a broker is selected */}
+                {selectedBroker && (
+                    <div className="mt-4 flex space-x-4">
+                        <Button
+                            variant="primary"
+                            onClick={handleOpenPaymentModal}
+                            disabled={stats.totalRemaining <= 0}
+                        >
+                            Pay Commission
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            onClick={handleViewPaymentHistory}
+                        >
+                            Payment History
+                        </Button>
+                    </div>
+                )}
             </div>
 
             {/* Invoices Table */}
@@ -420,7 +493,12 @@ const BrokerPayments = () => {
                             key: 'brokerName'
                         },
                         {
-                            header: 'Total Amount',
+                            header: 'Invoice Date',
+                            cell: (row) => formatDate(row.issueDate),
+                            key: 'issueDate'
+                        },
+                        {
+                            header: 'Invoice Amount',
                             cell: (row) => formatCurrency(Math.round(parseFloat(row.totalAmount || 0))),
                             key: 'totalAmount'
                         },
@@ -435,54 +513,22 @@ const BrokerPayments = () => {
                             key: 'commissionAmount'
                         },
                         {
-                            header: 'Paid Amount',
-                            cell: (row) => formatCurrency(Math.round(parseFloat(row.brokerPaidAmount || 0))),
-                            key: 'paidAmount'
-                        },
-                        {
-                            header: 'Remaining',
-                            cell: (row) => formatCurrency(Math.round(parseFloat(row.brokerRemainingAmount || 0))),
-                            key: 'remainingAmount'
-                        },
-                        {
-                            header: 'Payment Date',
-                            cell: (row) => formatDate(row.brokerPaymentDate),
-                            key: 'paymentDate'
-                        },
-                        {
-                            header: 'Status',
-                            cell: (row) => (
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getBrokerPaymentStatusClass(row)}`}>
-                                    {getBrokerPaymentStatusLabel(row)}
-                                </span>
-                            ),
-                            key: 'status'
-                        },
-                        {
                             header: 'Actions',
                             cell: (row) => (
-                                <div className="flex space-x-2">
                                     <Button
                                         variant="secondary"
                                         size="sm"
                                         onClick={() => handleViewInvoice(row)}
                                     >
-                                        View
+                                    View Invoice
                                     </Button>
-                                    <Button
-                                        variant="primary"
-                                        size="sm"
-                                        onClick={() => handleUpdatePayment(row)}
-                                    >
-                                        Update Payment
-                                    </Button>
-                                </div>
                             ),
                             key: 'actions'
                         }
                     ]}
                     data={getCurrentPageInvoices()}
                     loading={loading}
+                    emptyMessage="No broker commission records found"
                 />
 
                 {filteredInvoices.length > 0 && (
@@ -509,11 +555,11 @@ const BrokerPayments = () => {
             )}
 
             {/* Broker Payment Modal */}
-            {showPaymentModal && selectedBrokerInvoice && (
+            {showPaymentModal && selectedBroker && (
                 <Modal
                     isOpen={showPaymentModal}
                     onClose={handleClosePaymentModal}
-                    title={`Update Broker Payment - ${selectedBrokerInvoice.brokerName}`}
+                    title={`Pay Commission to ${selectedBroker.name}`}
                     size="md"
                 >
                     {paymentError && (
@@ -526,20 +572,12 @@ const BrokerPayments = () => {
                         <div className="mb-6 bg-gray-50 p-4 rounded-lg">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <p className="text-gray-600 text-sm">Invoice Number</p>
-                                    <p className="font-medium">{selectedBrokerInvoice.invoiceNumber}</p>
+                                    <p className="text-gray-600 text-sm">Total Commission</p>
+                                    <p className="font-medium">{formatCurrency(stats.totalCommission)}</p>
                                 </div>
                                 <div>
-                                    <p className="text-gray-600 text-sm">Customer</p>
-                                    <p className="font-medium">{selectedBrokerInvoice.customerName}</p>
-                                </div>
-                                <div>
-                                    <p className="text-gray-600 text-sm">Total Amount</p>
-                                    <p className="font-medium">{formatCurrency(Math.round(parseFloat(selectedBrokerInvoice.totalAmount || 0)))}</p>
-                                </div>
-                                <div>
-                                    <p className="text-gray-600 text-sm">Commission</p>
-                                    <p className="font-medium">{formatCurrency(Math.round(parseFloat(selectedBrokerInvoice.commissionAmount || 0)))} ({parseFloat(selectedBrokerInvoice.commissionPercentage || 0).toFixed(2)}%)</p>
+                                    <p className="text-gray-600 text-sm">Remaining Amount</p>
+                                    <p className="font-medium text-red-600">{formatCurrency(stats.totalRemaining)}</p>
                                 </div>
                             </div>
                         </div>
@@ -550,25 +588,28 @@ const BrokerPayments = () => {
                             </label>
                             <input
                                 type="number"
-                                value={brokerPaidAmount}
-                                onChange={handleBrokerPaidAmountChange}
+                                value={paymentAmount}
+                                onChange={handlePaymentAmountChange}
                                 className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 step="0.01"
                                 min="0"
-                                max={selectedBrokerInvoice.commissionAmount}
+                                max={stats.totalRemaining}
                             />
                         </div>
 
                         <div className="mb-4">
                             <label className="block text-gray-700 font-medium mb-2">
-                                Remaining Amount
+                                Payment Method
                             </label>
-                            <input
-                                type="text"
-                                value={formatCurrency(brokerRemainingAmount)}
-                                disabled
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50"
-                            />
+                            <select
+                                value={paymentMethod}
+                                onChange={(e) => setPaymentMethod(e.target.value)}
+                                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="cash">Cash</option>
+                                <option value="online">Online Transfer</option>
+                                <option value="cheque">Cheque</option>
+                            </select>
                         </div>
 
                         <div className="mb-6">
@@ -577,13 +618,10 @@ const BrokerPayments = () => {
                             </label>
                             <input
                                 type="date"
-                                value={brokerPaymentDate}
-                                onChange={(e) => setBrokerPaymentDate(e.target.value)}
+                                value={paymentDate}
+                                onChange={(e) => setPaymentDate(e.target.value)}
                                 className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
-                            <p className="text-sm text-gray-500 mt-1">
-                                Only required for fully paid commissions
-                            </p>
                         </div>
 
                         <div className="flex justify-end space-x-3">
@@ -591,6 +629,7 @@ const BrokerPayments = () => {
                                 type="button"
                                 onClick={handleClosePaymentModal}
                                 className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                                disabled={isUpdatingPayment}
                             >
                                 Cancel
                             </button>
@@ -605,10 +644,10 @@ const BrokerPayments = () => {
                                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                         </svg>
-                                        Updating...
+                                        Processing...
                                     </span>
                                 ) : (
-                                    'Update Payment'
+                                    'Process Payment'
                                 )}
                             </button>
                         </div>
@@ -616,17 +655,86 @@ const BrokerPayments = () => {
                 </Modal>
             )}
 
-            {/* Delete Confirmation Modal */}
-            {showDeleteModal && invoiceToDelete && (
-                <DeleteConfirmation
-                    isOpen={showDeleteModal}
-                    onClose={() => setShowDeleteModal(false)}
-                    onConfirm={handleDeleteInvoice}
-                    title="Delete Invoice"
-                    message={`Are you sure you want to delete invoice #${invoiceToDelete.invoiceNumber}? This action cannot be undone.`}
-                    confirmText="Delete Invoice"
-                    isDeleting={isDeleting}
-                />
+            {/* Payment History Modal */}
+            {showPaymentHistoryModal && selectedBroker && (
+                <Modal
+                    isOpen={showPaymentHistoryModal}
+                    onClose={handleClosePaymentHistoryModal}
+                    title={`Payment History for ${selectedBroker.name}`}
+                    size="xl"
+                >
+                    {loadingPaymentHistory ? (
+                        <div className="flex justify-center items-center py-8">
+                            <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </div>
+                    ) : paymentHistory.length === 0 ? (
+                        <div className="py-8 text-center text-gray-500">
+                            No payment records found for this broker.
+                        </div>
+                    ) : (
+                        <>
+                            <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <p className="text-sm text-gray-600">Total Commission</p>
+                                        <p className="text-xl font-bold">{formatCurrency(stats.totalCommission)}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-600">Total Paid</p>
+                                        <p className="text-xl font-bold text-green-600">{formatCurrency(stats.totalPaid)}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-600">Remaining Amount</p>
+                                        <p className="text-xl font-bold text-red-600">{formatCurrency(stats.totalRemaining)}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Payment Date
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Amount
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Method
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {paymentHistory.map((payment, index) => (
+                                            <tr key={index}>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {formatDate(payment.date)}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {formatCurrency(payment.amount)}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap capitalize">
+                                                    {payment.method}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="mt-4 flex justify-end">
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => handleFetchPaymentHistory(selectedBroker._id, true)}
+                                >
+                                    Refresh History
+                                </Button>
+                            </div>
+                        </>
+                    )}
+                </Modal>
             )}
         </div>
     );

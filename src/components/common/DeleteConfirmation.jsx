@@ -13,6 +13,7 @@ import Modal from './Modal';
  * @param {any} item - The item being deleted (optional)
  * @param {function} getItemName - Function to extract item name for display
  * @param {boolean} isProcessing - Whether the deletion is processing
+ * @param {string} confirmButtonText - Custom text for the confirmation button
  */
 const DeleteConfirmation = ({
     isOpen = false,
@@ -22,7 +23,8 @@ const DeleteConfirmation = ({
     message = 'Are you sure you want to delete this item? This action cannot be undone.',
     item = null,
     getItemName = (item) => item?.name || 'this item',
-    isProcessing = false
+    isProcessing = false,
+    confirmButtonText = 'Delete'
 }) => {
     // Extract item name if item is provided
     const itemName = item ? getItemName(item) : 'this item';
@@ -44,7 +46,7 @@ const DeleteConfirmation = ({
                 disabled={isProcessing}
                 className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-red-400"
             >
-                {isProcessing ? 'Deleting...' : 'Delete'}
+                {isProcessing ? 'Processing...' : confirmButtonText}
             </button>
         </div>
     );
@@ -55,11 +57,11 @@ const DeleteConfirmation = ({
             onClose={onClose}
             title={title}
             footer={footer}
-            size="sm"
+            size="md"
         >
-            <p className="text-gray-600">
+            <div className="text-gray-600 whitespace-pre-line">
                 {formattedMessage}
-            </p>
+            </div>
         </Modal>
     );
 };

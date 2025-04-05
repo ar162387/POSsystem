@@ -26,6 +26,9 @@ const AddCommissionSheet = () => {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [previewInvoice, setPreviewInvoice] = useState(null);
+    const [brokerCommission, setBrokerCommission] = useState(0);
+    const [brokerCommissionPercentage, setBrokerCommissionPercentage] = useState(0);
+    const [isVendorInvoice, setIsVendorInvoice] = useState(false);
 
     // Fetch commissioners and inventory items on component mount
     useEffect(() => {
@@ -149,6 +152,8 @@ const AddCommissionSheet = () => {
             receivedAmount,
             pendingAmount,
             dueDate,
+            brokerCommission: !isVendorInvoice ? brokerCommission : undefined,
+            brokerCommissionPercentage: !isVendorInvoice ? brokerCommissionPercentage : undefined
         };
 
         try {
@@ -434,6 +439,21 @@ const AddCommissionSheet = () => {
                             className="w-full border rounded p-2"
                         />
                     </div>
+
+                    {!isVendorInvoice && brokerCommissionPercentage > 0 && (
+                        <>
+                            <div className="border-t border-gray-200 mt-2 pt-2">
+                                <div className="flex justify-between mb-2">
+                                    <span className="text-gray-600">Commission Rate:</span>
+                                    <span className="font-medium">{brokerCommissionPercentage}%</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-gray-600">Commission Amount:</span>
+                                    <span className="font-medium text-blue-600">Rs {brokerCommission.toFixed(2)}</span>
+                                </div>
+                            </div>
+                        </>
+                    )}
 
                     <button
                         onClick={handlePreviewInvoice}

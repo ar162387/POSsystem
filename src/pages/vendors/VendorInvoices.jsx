@@ -14,7 +14,8 @@ import {
     Button,
     Select,
     Input,
-    InvoiceEditForm
+    InvoiceEditForm,
+    InvoiceItemsEditor
 } from '../../components/common';
 
 const VendorInvoices = () => {
@@ -55,9 +56,15 @@ const VendorInvoices = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [editError, setEditError] = useState('');
 
+    // Edit invoice items modal
+    const [showItemsEditModal, setShowItemsEditModal] = useState(false);
+    const [invoiceItemsToEdit, setInvoiceItemsToEdit] = useState(null);
+    const [isEditingItems, setIsEditingItems] = useState(false);
+    const [editItemsError, setEditItemsError] = useState('');
+
     useEffect(() => {
         fetchData();
-    }, []);
+    }, [success]);
 
     const fetchData = async () => {
         try {
@@ -107,13 +114,20 @@ const VendorInvoices = () => {
         if (status !== 'all') {
             if (status === 'partially_paid') {
                 filtered = filtered.filter(inv => {
-                    const isPaid = inv.status === 'paid';
+                    // Check paymentStatus field first
+                    if (inv.paymentStatus === 'partially_paid') return true;
+
+                    // Then fall back to legacy calculations
+                    const isPaid = inv.status === 'paid' || inv.paymentStatus === 'paid';
                     const hasRemaining = inv.remainingAmount > 0;
                     const hasSomePaid = inv.paidAmount > 0;
                     return !isPaid && hasSomePaid && hasRemaining;
                 });
             } else {
-                filtered = filtered.filter(inv => inv.status === status);
+                filtered = filtered.filter(inv => {
+                    // Check both paymentStatus and status fields
+                    return inv.paymentStatus === status || inv.status === status;
+                });
             }
         }
 
@@ -144,14 +158,50 @@ const VendorInvoices = () => {
 
     // Status label / style
     const getInvoiceStatusLabel = (inv) => {
+        // First check the paymentStatus field which is set by the backend
+        if (inv.paymentStatus) {
+            switch (inv.paymentStatus) {
+                case 'paid':
+                    return 'Paid';
+                case 'partially_paid':
+                    return 'Partially Paid';
+                case 'unpaid':
+                    return 'Unpaid';
+                default:
+                    break; // Fall through to the next check
+            }
+        }
+
+        // Fallback to the status field
         if (inv.status === 'paid') return 'Paid';
+
+        // Fallback to calculation based on amounts
         if (inv.paidAmount > 0 && inv.remainingAmount > 0) return 'Partially Paid';
+        if (inv.remainingAmount === 0 && inv.paidAmount > 0) return 'Paid';
         return 'Unpaid';
     };
 
     const getInvoiceStatusClass = (inv) => {
+        // First check the paymentStatus field which is set by the backend
+        if (inv.paymentStatus) {
+            switch (inv.paymentStatus) {
+                case 'paid':
+                    return 'bg-green-100 text-green-800';
+                case 'partially_paid':
+                    return 'bg-amber-100 text-amber-800';
+                case 'unpaid':
+                    return 'bg-red-100 text-red-800';
+                default:
+                    break; // Fall through to the next check
+            }
+        }
+
+        // Fallback to the status field
         if (inv.status === 'paid') return 'bg-green-100 text-green-800';
+
+        // Fallback to calculation based on amounts
         if (inv.paidAmount > 0 && inv.remainingAmount > 0) return 'bg-amber-100 text-amber-800';
+        if (inv.remainingAmount === 0 && inv.paidAmount > 0) return 'bg-green-100 text-green-800';
         return 'bg-red-100 text-red-800';
     };
 
@@ -186,7 +236,7 @@ const VendorInvoices = () => {
         }
     };
 
-    // EDIT invoice
+    // EDIT invoice payment
     const handleEditInvoice = async (inv) => {
         try {
             setLoading(true);
@@ -199,6 +249,24 @@ const VendorInvoices = () => {
         } catch (err) {
             console.error('Error loading vendor invoice for edit:', err);
             setError('Could not load vendor invoice for editing.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // EDIT invoice items
+    const handleEditItems = async (inv) => {
+        try {
+            setLoading(true);
+
+            // Load detailed invoice
+            const detailed = await ipcRenderer.invoke('get-vendor-invoice', inv._id);
+            setInvoiceItemsToEdit(detailed);
+            setShowItemsEditModal(true);
+            setEditItemsError('');
+        } catch (err) {
+            console.error('Error loading vendor invoice for item editing:', err);
+            setError('Could not load vendor invoice items for editing.');
         } finally {
             setLoading(false);
         }
@@ -236,10 +304,53 @@ const VendorInvoices = () => {
         }
     };
 
+    // Submit updated items info
+    const handleEditItemsSubmit = async (updatedInvoiceData) => {
+        try {
+            setIsEditingItems(true);
+            setEditItemsError('');
+
+            // Call the backend to update the invoice items
+            await ipcRenderer.invoke('update-vendor-invoice-items', {
+                invoiceId: updatedInvoiceData._id,
+                items: updatedInvoiceData.items,
+                subtotal: updatedInvoiceData.subtotal,
+                labourTransportCost: updatedInvoiceData.labourTransportCost,
+                totalAmount: updatedInvoiceData.totalAmount
+            });
+
+            setSuccess(`Invoice items for ${invoiceItemsToEdit.invoiceNumber} updated successfully.`);
+
+            // Close the edit items modal
+            setShowItemsEditModal(false);
+            setInvoiceItemsToEdit(null);
+
+            // Refresh data
+            await fetchData();
+
+            // If currently viewing this invoice, refetch its detail
+            if (selectedInvoice && selectedInvoice._id === updatedInvoiceData._id) {
+                const updatedInv = await ipcRenderer.invoke('get-vendor-invoice', updatedInvoiceData._id);
+                setSelectedInvoice(updatedInv);
+            }
+        } catch (err) {
+            console.error('Error updating vendor invoice items:', err);
+            setEditItemsError('Failed to update invoice items. Please try again.');
+        } finally {
+            setIsEditingItems(false);
+        }
+    };
+
     const handleCloseEditModal = () => {
         setShowEditModal(false);
         setInvoiceToEdit(null);
         setEditError('');
+    };
+
+    const handleCloseItemsEditModal = () => {
+        setShowItemsEditModal(false);
+        setInvoiceItemsToEdit(null);
+        setEditItemsError('');
     };
 
     // DELETE invoice
@@ -337,24 +448,42 @@ const VendorInvoices = () => {
                 </span>
             ),
         },
-    ];
-
-    // Table row actions: View/Edit/Delete
-    const actions = [
         {
-            label: 'View',
-            onClick: handleViewInvoice,
-            className: 'text-blue-600 hover:text-blue-900',
-        },
-        {
-            label: 'Edit',
-            onClick: handleEditInvoice,
-            className: 'text-amber-600 hover:text-amber-900',
-        },
-        {
-            label: 'Delete',
-            onClick: promptDeleteInvoice,
-            className: 'text-red-600 hover:text-red-900',
+            key: 'actions',
+            label: 'Actions',
+            render: (inv) => (
+                <div className="flex flex-col space-y-2">
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleViewInvoice(inv)}
+                    >
+                        View
+                    </Button>
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleEditInvoice(inv)}
+                        disabled={inv.status === 'paid'}
+                    >
+                        Edit Payment
+                    </Button>
+                    <Button
+                        variant="info"
+                        size="sm"
+                        onClick={() => handleEditItems(inv)}
+                    >
+                        Edit Items
+                    </Button>
+                    <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => promptDeleteInvoice(inv)}
+                    >
+                        Delete
+                    </Button>
+                </div>
+            ),
         },
     ];
 
@@ -411,7 +540,6 @@ const VendorInvoices = () => {
                         <Table
                             data={getCurrentPageInvoices()}
                             columns={columns}
-                            actions={actions}
                             emptyMessage="No invoices found"
                         />
 
@@ -460,11 +588,18 @@ const VendorInvoices = () => {
                 isOpen={showDeleteModal}
                 onClose={() => setShowDeleteModal(false)}
                 onConfirm={handleDeleteInvoice}
-                title="Confirm Delete"
-                message={`Are you sure you want to delete invoice #${invoiceToDelete?.invoiceNumber}? This action cannot be undone.`}
+                title="Warning: Permanent Invoice Deletion"
+                message={`Deleting invoice #${invoiceToDelete?.invoiceNumber} will remove the entire record and revert all changes to the database. This includes:
+
+1. Removing all items from inventory that were added through this invoice
+2. Deleting payment history
+3. Permanently removing the invoice
+
+This action cannot be undone.`}
                 item={invoiceToDelete}
                 getItemName={(inv) => inv?.invoiceNumber}
                 isProcessing={isDeleting}
+                confirmButtonText="Delete and Revert Changes"
             />
 
             {/* Edit Invoice Modal */}
@@ -481,6 +616,25 @@ const VendorInvoices = () => {
                 calculateItemTotal={calculateItemTotal}
                 isVendorInvoice={true}
             />
+
+            {/* Edit Invoice Items Modal */}
+            {showItemsEditModal && invoiceItemsToEdit && (
+                <Modal
+                    isOpen={showItemsEditModal}
+                    onClose={handleCloseItemsEditModal}
+                    title={`Edit Items for Invoice #${invoiceItemsToEdit.invoiceNumber}`}
+                    size="5xl"
+                >
+                    <InvoiceItemsEditor
+                        invoice={invoiceItemsToEdit}
+                        onSave={handleEditItemsSubmit}
+                        onCancel={handleCloseItemsEditModal}
+                        isLoading={isEditingItems}
+                        error={editItemsError}
+                        isVendorInvoice={true}
+                    />
+                </Modal>
+            )}
         </div>
     );
 };

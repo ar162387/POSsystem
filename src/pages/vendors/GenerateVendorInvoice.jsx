@@ -62,6 +62,7 @@ const GenerateVendorInvoice = () => {
         description: '',
         purchasePrice: 0,
         netWeight: 0,
+        grossWeight: 0,
         quantity: 1,
         packagingCost: 0,
         unit: 'kg'
@@ -191,6 +192,7 @@ const GenerateVendorInvoice = () => {
                 description: '',
                 purchasePrice: 0,
                 netWeight: 0,
+                grossWeight: 0,
                 quantity: 1,
                 packagingCost: 0,
                 unit: 'kg'
@@ -207,6 +209,7 @@ const GenerateVendorInvoice = () => {
             description: selectedItem.description || '',
             purchasePrice: selectedItem.costPrice || 0,
             netWeight: 1,
+            grossWeight: selectedItem.grossWeight || 0,
             quantity: 1,
             packagingCost: selectedItem.packagingCost || 0,
             unit: selectedItem.unit || 'kg',
@@ -219,7 +222,7 @@ const GenerateVendorInvoice = () => {
 
     const handleItemInputChange = (e) => {
         const { name, value } = e.target;
-        const newValue = ['purchasePrice', 'netWeight', 'quantity', 'packagingCost'].includes(name)
+        const newValue = ['purchasePrice', 'netWeight', 'grossWeight', 'quantity', 'packagingCost'].includes(name)
             ? parseFloat(value) || 0
             : value;
 
@@ -232,6 +235,7 @@ const GenerateVendorInvoice = () => {
     const calculateItemTotal = (item) => {
         const purchasePrice = parseFloat(item.purchasePrice) || 0;
         const netWeight = parseFloat(item.netWeight) || 0;
+        const grossWeight = parseFloat(item.grossWeight) || 0;
         const quantity = parseInt(item.quantity) || 0;
         const packagingCost = parseFloat(item.packagingCost) || 0;
 
@@ -258,6 +262,7 @@ const GenerateVendorInvoice = () => {
                 ...newItems[existingItemIndex],
                 quantity: newItems[existingItemIndex].quantity + currentItem.quantity,
                 netWeight: currentItem.netWeight,
+                grossWeight: currentItem.grossWeight,
                 purchasePrice: currentItem.purchasePrice,
                 packagingCost: currentItem.packagingCost
             };
@@ -281,6 +286,7 @@ const GenerateVendorInvoice = () => {
             description: '',
             purchasePrice: 0,
             netWeight: 0,
+            grossWeight: 0,
             quantity: 1,
             packagingCost: 0,
             unit: 'kg'
@@ -458,6 +464,7 @@ const GenerateVendorInvoice = () => {
                     description: item.description || '',
                     purchasePrice: parseFloat(item.purchasePrice) || 0,
                     netWeight: parseFloat(item.netWeight) || 0,
+                    grossWeight: parseFloat(item.grossWeight) || 0,
                     quantity: parseInt(item.quantity) || 0,
                     packagingCost: parseFloat(item.packagingCost) || 0,
                     unit: item.unit || 'kg',
@@ -710,7 +717,7 @@ const GenerateVendorInvoice = () => {
                             </div>
 
                             {currentItem.itemId && (
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                                     <div>
                                         <label className="block text-gray-700 font-medium mb-2">
                                             Purchase Price (per {currentItem.unit})
@@ -732,6 +739,19 @@ const GenerateVendorInvoice = () => {
                                             type="number"
                                             name="netWeight"
                                             value={currentItem.netWeight}
+                                            onChange={handleItemInputChange}
+                                            min="0"
+                                            step="0.01"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-gray-700 font-medium mb-2">
+                                            Gross Weight ({currentItem.unit})
+                                        </label>
+                                        <Input
+                                            type="number"
+                                            name="grossWeight"
+                                            value={currentItem.grossWeight}
                                             onChange={handleItemInputChange}
                                             min="0"
                                             step="0.01"
@@ -791,6 +811,9 @@ const GenerateVendorInvoice = () => {
                                                 Net Weight
                                             </th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Gross Weight
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                 Qty
                                             </th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -816,6 +839,9 @@ const GenerateVendorInvoice = () => {
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     {item.netWeight} {item.unit}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {item.grossWeight} {item.unit}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     {item.quantity}

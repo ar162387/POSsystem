@@ -163,7 +163,7 @@ const ListBrokers = () => {
             setIsSubmitting(true);
 
             // Call the backend to add the broker
-            await ipcRenderer.invoke('add-broker', newBroker);
+            await ipcRenderer.invoke('create-broker', newBroker);
 
             // Show success message and close modal
             setSuccess(`Broker ${newBroker.name} added successfully.`);

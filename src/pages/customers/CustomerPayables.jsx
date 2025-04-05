@@ -31,6 +31,8 @@ const CustomerPayables = () => {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [paymentError, setPaymentError] = useState('');
+    const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+    const [overallStats, setOverallStats] = useState({ total: 0, paid: 0, outstanding: 0 });
 
     // Invoice detail modal state
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -61,12 +63,47 @@ const CustomerPayables = () => {
 
             // Calculate the totals based on the fresh invoice data
             calculateCustomerTotals(invoiceData.invoices || []);
+
+            // Calculate overall stats
+            calculateOverallStats(invoiceData.invoices || []);
+
+            // Initialize filtered invoices with all invoices
+            initializeFilteredInvoices(invoiceData.invoices || []);
         } catch (err) {
             console.error('Error fetching data:', err);
             setError('Failed to load data');
         } finally {
             setLoading(false);
         }
+    };
+
+    const calculateOverallStats = (invoicesList) => {
+        let totalInvoices = 0;
+        let totalPaid = 0;
+        let totalOutstanding = 0;
+
+        invoicesList.forEach(invoice => {
+            const totalAmount = parseFloat(invoice.totalAmount) || 0;
+            const paidAmount = parseFloat(invoice.paidAmount) || 0;
+            const remainingAmount = parseFloat(invoice.remainingAmount) || totalAmount - paidAmount;
+
+            totalInvoices += totalAmount;
+            totalPaid += paidAmount;
+            totalOutstanding += remainingAmount;
+        });
+
+        setOverallStats({
+            total: totalInvoices,
+            paid: totalPaid,
+            outstanding: totalOutstanding
+        });
+    };
+
+    const initializeFilteredInvoices = (invoicesList) => {
+        // Sort invoices by issue date (newest first)
+        const sorted = [...invoicesList].sort((a, b) => new Date(b.issueDate) - new Date(a.issueDate));
+        setFilteredInvoices(sorted);
+        setTotalPages(Math.ceil(sorted.length / perPage));
     };
 
     const calculateCustomerTotals = (invoicesList) => {
@@ -99,43 +136,50 @@ const CustomerPayables = () => {
 
     // Filter invoices when selection or filters change
     useEffect(() => {
+        let filtered = [];
+
         if (selectedCustomer) {
-            let filtered = invoices.filter(invoice => invoice.customerId === selectedCustomer);
-
-            // Apply status filter
-            if (statusFilter !== 'all') {
-                if (statusFilter === 'partially_paid') {
-                    filtered = filtered.filter(invoice =>
-                        invoice.paidAmount > 0 && invoice.remainingAmount > 0
-                    );
-                } else {
-                    filtered = filtered.filter(invoice => invoice.status === statusFilter);
-                }
-            }
-
-            // Apply search term filter
-            if (searchTerm) {
-                filtered = filtered.filter(invoice =>
-                    invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase())
-                );
-            }
-
-            // Sort invoices by issue date (newest first)
-            filtered.sort((a, b) => new Date(b.issueDate) - new Date(a.issueDate));
-
-            setFilteredInvoices(filtered);
-            setTotalPages(Math.ceil(filtered.length / perPage));
-            setCurrentPage(1); // Reset to first page when filters change
+            // Filter by selected customer
+            filtered = invoices.filter(invoice => invoice.customerId === selectedCustomer);
         } else {
-            setFilteredInvoices([]);
-            setTotalPages(1);
+            // If no customer is selected, show all invoices
+            filtered = [...invoices];
         }
+
+        // Apply status filter
+        if (statusFilter !== 'all') {
+            if (statusFilter === 'partially_paid') {
+                filtered = filtered.filter(invoice =>
+                    invoice.paidAmount > 0 && invoice.remainingAmount > 0
+                );
+            } else {
+                filtered = filtered.filter(invoice => invoice.status === statusFilter);
+            }
+        }
+
+        // Apply search term filter
+        if (searchTerm) {
+            filtered = filtered.filter(invoice =>
+                invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+        }
+
+        // Sort invoices by issue date (newest first)
+        filtered.sort((a, b) => new Date(b.issueDate) - new Date(a.issueDate));
+
+        setFilteredInvoices(filtered);
+        setTotalPages(Math.ceil(filtered.length / perPage));
+        setCurrentPage(1); // Reset to first page when filters change
     }, [selectedCustomer, invoices, statusFilter, searchTerm, perPage]);
 
     const handleCustomerChange = (e) => {
         setSelectedCustomer(e.target.value);
         setError('');
         setSuccess('');
+    };
+
+    const handleCustomerSearch = (e) => {
+        setCustomerSearchTerm(e.target.value);
     };
 
     const handleStatusFilterChange = (e) => {
@@ -265,9 +309,38 @@ const CustomerPayables = () => {
         setViewInvoice(null);
     };
 
+    const getFilteredCustomerOptions = () => {
+        const baseOptions = [{ value: '', label: 'All Customers' }];
+
+        // Filter customers based on search term
+        const filteredCustomers = customers.filter(customer => {
+            const customerName = customer.name.toLowerCase();
+            const customerCompany = (customer.company || '').toLowerCase();
+            const searchLower = customerSearchTerm.toLowerCase();
+
+            return customerName.includes(searchLower) || customerCompany.includes(searchLower);
+        });
+
+        // Map filtered customers to options
+        const customerOptions = filteredCustomers.map(customer => ({
+            value: customer._id,
+            label: `${customer.name} (${customer.company || 'No Company'})`
+        }));
+
+        return [...baseOptions, ...customerOptions];
+    };
+
     // Configure table columns and actions
     const columns = [
         { key: 'invoiceNumber', label: 'Invoice #' },
+        {
+            key: 'customer',
+            label: 'Customer',
+            format: (value, row) => {
+                const customer = customers.find(c => c._id === row.customerId);
+                return customer ? `${customer.name} (${customer.company || 'No Company'})` : 'N/A';
+            }
+        },
         {
             key: 'issueDate',
             label: 'Date',
@@ -339,24 +412,28 @@ const CustomerPayables = () => {
             <div className="mb-6 p-4 bg-white rounded-lg shadow">
                 <div className="mb-4">
                     <label htmlFor="customer" className="block text-sm font-medium text-gray-700 mb-1">
-                        Select Customer
+                        Search/Select Customer
                     </label>
-                    <Select
-                        id="customer"
-                        value={selectedCustomer}
-                        onChange={handleCustomerChange}
-                        disabled={loading}
-                        options={[
-                            { value: '', label: 'Select a customer...' },
-                            ...customers.map(customer => ({
-                                value: customer._id,
-                                label: `${customer.name} (${customer.company || 'No Company'})`
-                            }))
-                        ]}
-                    />
+                    <div className="space-y-2">
+                        <Input
+                            id="customerSearch"
+                            type="text"
+                            value={customerSearchTerm}
+                            onChange={handleCustomerSearch}
+                            placeholder="Search customers by name or company..."
+                            disabled={loading}
+                        />
+                        <Select
+                            id="customer"
+                            value={selectedCustomer}
+                            onChange={handleCustomerChange}
+                            disabled={loading}
+                            options={getFilteredCustomerOptions()}
+                        />
+                    </div>
                 </div>
 
-                {selectedCustomer && customerTotals[selectedCustomer] && (
+                {selectedCustomer && customerTotals[selectedCustomer] ? (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                         <div className="bg-blue-50 p-4 rounded-lg">
                             <h3 className="text-sm font-medium text-blue-800">Total Invoices</h3>
@@ -371,66 +448,77 @@ const CustomerPayables = () => {
                             <p className="text-xl font-bold text-red-900">{formatCurrency(customerTotals[selectedCustomer].outstanding)}</p>
                         </div>
                     </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                        <div className="bg-blue-50 p-4 rounded-lg">
+                            <h3 className="text-sm font-medium text-blue-800">Total Invoices</h3>
+                            <p className="text-xl font-bold text-blue-900">{formatCurrency(overallStats.total)}</p>
+                        </div>
+                        <div className="bg-green-50 p-4 rounded-lg">
+                            <h3 className="text-sm font-medium text-green-800">Total Paid</h3>
+                            <p className="text-xl font-bold text-green-900">{formatCurrency(overallStats.paid)}</p>
+                        </div>
+                        <div className="bg-red-50 p-4 rounded-lg">
+                            <h3 className="text-sm font-medium text-red-800">Outstanding Balance</h3>
+                            <p className="text-xl font-bold text-red-900">{formatCurrency(overallStats.outstanding)}</p>
+                        </div>
+                    </div>
                 )}
             </div>
 
-            {/* Filters */}
-            {selectedCustomer && (
-                <div className="mb-6 flex flex-col md:flex-row md:items-end space-y-4 md:space-y-0 md:space-x-4">
-                    <div className="w-full md:w-1/4">
-                        <label htmlFor="statusFilter" className="block text-sm font-medium text-gray-700 mb-1">
-                            Payment Status
-                        </label>
-                        <Select
-                            id="statusFilter"
-                            value={statusFilter}
-                            onChange={handleStatusFilterChange}
-                            disabled={loading}
-                            options={[
-                                { value: 'all', label: 'All Statuses' },
-                                { value: 'unpaid', label: 'Unpaid' },
-                                { value: 'partially_paid', label: 'Partially Paid' },
-                                { value: 'paid', label: 'Paid' }
-                            ]}
-                        />
-                    </div>
-                    <div className="w-full md:w-1/4">
-                        <label htmlFor="searchTerm" className="block text-sm font-medium text-gray-700 mb-1">
-                            Invoice Number
-                        </label>
-                        <Input
-                            id="searchTerm"
-                            type="text"
-                            value={searchTerm}
-                            onChange={handleSearchChange}
-                            placeholder="Search by invoice number..."
-                            disabled={loading}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Invoices Table */}
-            {selectedCustomer && (
-                <div className="bg-white rounded-lg shadow overflow-hidden">
-                    <Table
-                        columns={columns}
-                        data={getCurrentPageInvoices()}
-                        loading={loading}
-                        emptyMessage="No invoices found for this customer."
+            {/* Filters - always show */}
+            <div className="mb-6 flex flex-col md:flex-row md:items-end space-y-4 md:space-y-0 md:space-x-4">
+                <div className="w-full md:w-1/4">
+                    <label htmlFor="statusFilter" className="block text-sm font-medium text-gray-700 mb-1">
+                        Payment Status
+                    </label>
+                    <Select
+                        id="statusFilter"
+                        value={statusFilter}
+                        onChange={handleStatusFilterChange}
+                        disabled={loading}
+                        options={[
+                            { value: 'all', label: 'All Statuses' },
+                            { value: 'unpaid', label: 'Unpaid' },
+                            { value: 'partially_paid', label: 'Partially Paid' },
+                            { value: 'paid', label: 'Paid' }
+                        ]}
                     />
-
-                    {filteredInvoices.length > 0 && (
-                        <div className="p-4 border-t">
-                            <Pagination
-                                currentPage={currentPage}
-                                totalPages={totalPages}
-                                onPageChange={setCurrentPage}
-                            />
-                        </div>
-                    )}
                 </div>
-            )}
+                <div className="w-full md:w-1/4">
+                    <label htmlFor="searchTerm" className="block text-sm font-medium text-gray-700 mb-1">
+                        Invoice Number
+                    </label>
+                    <Input
+                        id="searchTerm"
+                        type="text"
+                        value={searchTerm}
+                        onChange={handleSearchChange}
+                        placeholder="Search by invoice number..."
+                        disabled={loading}
+                    />
+                </div>
+            </div>
+
+            {/* Invoices Table - always show */}
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+                <Table
+                    columns={columns}
+                    data={getCurrentPageInvoices()}
+                    loading={loading}
+                    emptyMessage="No invoices found."
+                />
+
+                {filteredInvoices.length > 0 && (
+                    <div className="p-4 border-t">
+                        <Pagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            onPageChange={setCurrentPage}
+                        />
+                    </div>
+                )}
+            </div>
 
             {/* Payment Modal */}
             {showPaymentModal && selectedInvoice && (

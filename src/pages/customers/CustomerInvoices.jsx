@@ -14,7 +14,8 @@ import {
     Button,
     Select,
     Input,
-    InvoiceEditForm
+    InvoiceEditForm,
+    InvoiceItemsEditor
 } from '../../components/common';
 
 const CustomerInvoices = () => {
@@ -48,6 +49,12 @@ const CustomerInvoices = () => {
     const [invoiceToEdit, setInvoiceToEdit] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editError, setEditError] = useState('');
+
+    // Edit invoice items modal
+    const [showItemsEditModal, setShowItemsEditModal] = useState(false);
+    const [invoiceItemsToEdit, setInvoiceItemsToEdit] = useState(null);
+    const [isEditingItems, setIsEditingItems] = useState(false);
+    const [editItemsError, setEditItemsError] = useState('');
 
     // Fetch data when success message changes (indicating a successful operation)
     useEffect(() => {
@@ -91,13 +98,23 @@ const CustomerInvoices = () => {
 
         // Apply status filter
         if (status !== 'all') {
-            if (status === 'partially_paid') {
-                filtered = filtered.filter(invoice =>
-                    invoice.paidAmount > 0 && invoice.remainingAmount > 0
-                );
-            } else {
-                filtered = filtered.filter(invoice => invoice.status === status);
-            }
+            filtered = filtered.filter(invoice => {
+                // Prefer using paymentStatus field directly
+                if (invoice.paymentStatus) {
+                    return invoice.paymentStatus === status;
+                }
+
+                // Fallback to universal status logic
+                if (status === 'paid') {
+                    return invoice.remainingAmount === 0;
+                } else if (status === 'partially_paid') {
+                    return invoice.remainingAmount < invoice.totalAmount && invoice.remainingAmount > 0;
+                } else if (status === 'unpaid') {
+                    return invoice.remainingAmount === invoice.totalAmount;
+                }
+
+                return true;
+            });
         }
 
         setFilteredInvoices(filtered);
@@ -125,15 +142,53 @@ const CustomerInvoices = () => {
     };
 
     const getInvoiceStatusLabel = (invoice) => {
-        if (invoice.status === 'paid') return 'Paid';
-        if (invoice.paidAmount > 0 && invoice.remainingAmount > 0) return 'Partially Paid';
-        return 'Unpaid';
+        // Use paymentStatus field directly from DB
+        if (invoice.paymentStatus) {
+            switch (invoice.paymentStatus) {
+                case 'paid':
+                    return 'Paid';
+                case 'partially_paid':
+                    return 'Partially Paid';
+                case 'unpaid':
+                    return 'Unpaid';
+                default:
+                    return 'Unpaid';
+            }
+        }
+
+        // Fallback to calculating from amounts using universal logic
+        if (invoice.remainingAmount === 0) {
+            return 'Paid';
+        } else if (invoice.remainingAmount < invoice.totalAmount && invoice.remainingAmount > 0) {
+            return 'Partially Paid';
+        } else {
+            return 'Unpaid';
+        }
     };
 
     const getInvoiceStatusClass = (invoice) => {
-        if (invoice.status === 'paid') return 'bg-green-100 text-green-800';
-        if (invoice.paidAmount > 0 && invoice.remainingAmount > 0) return 'bg-amber-100 text-amber-800';
-        return 'bg-red-100 text-red-800';
+        // Use paymentStatus field directly from DB
+        if (invoice.paymentStatus) {
+            switch (invoice.paymentStatus) {
+                case 'paid':
+                    return 'bg-green-100 text-green-800';
+                case 'partially_paid':
+                    return 'bg-amber-100 text-amber-800';
+                case 'unpaid':
+                    return 'bg-red-100 text-red-800';
+                default:
+                    return 'bg-red-100 text-red-800';
+            }
+        }
+
+        // Fallback to calculating from amounts using universal logic
+        if (invoice.remainingAmount === 0) {
+            return 'bg-green-100 text-green-800';
+        } else if (invoice.remainingAmount < invoice.totalAmount && invoice.remainingAmount > 0) {
+            return 'bg-amber-100 text-amber-800';
+        } else {
+            return 'bg-red-100 text-red-800';
+        }
     };
 
     const formatCurrency = (amount) => {
@@ -185,6 +240,25 @@ const CustomerInvoices = () => {
         }
     };
 
+    const handleEditItems = async (invoice) => {
+        try {
+            setLoading(true);
+
+            // Fetch the complete invoice with detailed item information
+            const detailedInvoice = await ipcRenderer.invoke('get-invoice', invoice._id);
+
+            // Set the invoice items to edit and show the edit items modal
+            setInvoiceItemsToEdit(detailedInvoice);
+            setShowItemsEditModal(true);
+            setEditItemsError('');
+        } catch (err) {
+            console.error('Error fetching invoice details for editing items:', err);
+            setError('Could not load invoice details for editing items. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleEditSubmit = async (updatedInvoiceData) => {
         try {
             setIsEditing(true);
@@ -193,14 +267,15 @@ const CustomerInvoices = () => {
             // Call the backend to update the invoice
             await ipcRenderer.invoke('update-invoice-payment', updatedInvoiceData);
 
-            // Show success message
-            setSuccess(`Invoice ${invoiceToEdit.invoiceNumber} updated successfully.`);
-
             // Close the edit modal
             setShowEditModal(false);
             setInvoiceToEdit(null);
 
-            // Refresh will be handled by the useEffect that watches success
+            // Show success message and refresh data
+            setSuccess(`Invoice ${invoiceToEdit.invoiceNumber} updated successfully.`);
+
+            // Explicitly fetch fresh data
+            await fetchData();
         } catch (err) {
             console.error('Error updating invoice:', err);
             setEditError('Failed to update invoice. Please try again.');
@@ -209,10 +284,67 @@ const CustomerInvoices = () => {
         }
     };
 
+    const handleEditItemsSubmit = async (updatedInvoiceData) => {
+        try {
+            setIsEditingItems(true);
+            setEditItemsError('');
+
+            // Log the data being sent to the backend
+            console.log('Sending updated invoice data to backend:', {
+                invoiceId: updatedInvoiceData._id,
+                items: updatedInvoiceData.items.length,
+                totalAmount: updatedInvoiceData.totalAmount,
+                commissionAmount: updatedInvoiceData.commissionAmount,
+                commissionPercentage: updatedInvoiceData.commissionPercentage,
+                brokerName: updatedInvoiceData.brokerName
+            });
+
+            // Call the backend to update the invoice items
+            const result = await ipcRenderer.invoke('update-invoice-items', {
+                invoiceId: updatedInvoiceData._id,
+                items: updatedInvoiceData.items,
+                originalItems: updatedInvoiceData.originalItems,
+                subtotal: updatedInvoiceData.subtotal,
+                laborTransportCost: updatedInvoiceData.laborTransportCost,
+                totalAmount: updatedInvoiceData.totalAmount,
+                remainingAmount: updatedInvoiceData.remainingAmount,
+                paidAmount: updatedInvoiceData.paidAmount,
+                status: updatedInvoiceData.status,
+                commissionAmount: updatedInvoiceData.commissionAmount,
+                commissionPercentage: updatedInvoiceData.commissionPercentage,
+                brokerName: updatedInvoiceData.brokerName
+            });
+
+            // Log the result from the backend
+            console.log('Backend response:', result);
+
+            // Show success message
+            setSuccess(`Invoice items for ${invoiceItemsToEdit.invoiceNumber} updated successfully.`);
+
+            // Close the edit items modal
+            setShowItemsEditModal(false);
+            setInvoiceItemsToEdit(null);
+
+            // Refresh data to show updated values from the database
+            await fetchData();
+        } catch (err) {
+            console.error('Error updating invoice items:', err);
+            setEditItemsError('Failed to update invoice items. Please try again.');
+        } finally {
+            setIsEditingItems(false);
+        }
+    };
+
     const handleCloseEditModal = () => {
         setShowEditModal(false);
         setInvoiceToEdit(null);
         setEditError('');
+    };
+
+    const handleCloseItemsEditModal = () => {
+        setShowItemsEditModal(false);
+        setInvoiceItemsToEdit(null);
+        setEditItemsError('');
     };
 
     const promptDeleteInvoice = (invoice) => {
@@ -329,9 +461,16 @@ const CustomerInvoices = () => {
                         variant="primary"
                         size="sm"
                         onClick={() => handleEditInvoice(row)}
-                        disabled={row.status === 'paid'}
+                        disabled={row.paymentStatus === 'paid'}
                     >
-                        Edit
+                        Edit Payment
+                    </Button>
+                    <Button
+                        variant="info"
+                        size="sm"
+                        onClick={() => handleEditItems(row)}
+                    >
+                        Edit Items
                     </Button>
                     <Button
                         variant="danger"
@@ -343,6 +482,14 @@ const CustomerInvoices = () => {
                 </div>
             )
         }
+    ];
+
+    // Update the status filter options
+    const statusFilterOptions = [
+        { value: 'all', label: 'All Statuses' },
+        { value: 'unpaid', label: 'Unpaid' },
+        { value: 'partially_paid', label: 'Partially Paid' },
+        { value: 'paid', label: 'Paid' }
     ];
 
     return (
@@ -386,12 +533,7 @@ const CustomerInvoices = () => {
                             value={statusFilter}
                             onChange={handleStatusFilterChange}
                             disabled={loading}
-                            options={[
-                                { value: 'all', label: 'All Statuses' },
-                                { value: 'unpaid', label: 'Unpaid' },
-                                { value: 'partially_paid', label: 'Partially Paid' },
-                                { value: 'paid', label: 'Paid' }
-                            ]}
+                            options={statusFilterOptions}
                         />
                     </div>
                 </div>
@@ -435,10 +577,19 @@ const CustomerInvoices = () => {
                     isOpen={showDeleteModal}
                     onClose={() => setShowDeleteModal(false)}
                     onConfirm={handleDeleteInvoice}
-                    title="Delete Invoice"
-                    message={`Are you sure you want to delete invoice #${invoiceToDelete.invoiceNumber}? This action cannot be undone.`}
-                    confirmText="Delete Invoice"
-                    isDeleting={isDeleting}
+                    title="Warning: Permanent Invoice Deletion"
+                    message={`Deleting invoice #${invoiceToDelete?.invoiceNumber} will remove the entire record and revert all changes to the database. This includes:
+
+1. Returning all items back to inventory
+2. Removing broker commission records
+3. Deleting payment history
+4. Permanently removing the invoice
+
+This action cannot be undone.`}
+                    item={invoiceToDelete}
+                    getItemName={(inv) => inv?.invoiceNumber}
+                    isProcessing={isDeleting}
+                    confirmButtonText="Delete and Revert Changes"
                 />
             )}
 
@@ -457,6 +608,25 @@ const CustomerInvoices = () => {
                     getStatusClass={getInvoiceStatusClass}
                     formatDate={formatDate}
                 />
+            )}
+
+            {/* Edit Invoice Items Modal */}
+            {showItemsEditModal && invoiceItemsToEdit && (
+                <Modal
+                    isOpen={showItemsEditModal}
+                    onClose={handleCloseItemsEditModal}
+                    title={`Edit Items for Invoice #${invoiceItemsToEdit.invoiceNumber}`}
+                    size="5xl"
+                >
+                    <InvoiceItemsEditor
+                        invoice={invoiceItemsToEdit}
+                        onSave={handleEditItemsSubmit}
+                        onCancel={handleCloseItemsEditModal}
+                        isLoading={isEditingItems}
+                        error={editItemsError}
+                        isVendorInvoice={false}
+                    />
+                </Modal>
             )}
         </div>
     );

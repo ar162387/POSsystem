@@ -4,6 +4,7 @@ const UserModel = require('../models/userModel');
 const permissionTemplates = {
     admin: {
         dashboard: true,
+        fakeInvoices: true,
         inventory: {
             view: true,
             manage: true
@@ -12,18 +13,21 @@ const permissionTemplates = {
             view: true,
             details: true,
             profitLoss: true,
-            salesReport: true
+            salesReport: true,
+            balanceSheet: true
         },
         customers: {
             view: true,
             list: true,
             invoices: true,
+            generateInvoice: true,
             payables: true
         },
         vendors: {
             view: true,
             list: true,
             invoices: true,
+            generateInvoice: true,
             payables: true
         },
         brokers: {
@@ -40,11 +44,13 @@ const permissionTemplates = {
         settings: {
             view: true,
             account: true,
-            userManagement: true
+            userManagement: true,
+            utilities: true
         }
     },
     cashier: {
         dashboard: true,
+        fakeInvoices: false,
         inventory: {
             view: true,
             manage: false
@@ -53,18 +59,21 @@ const permissionTemplates = {
             view: false,
             details: false,
             profitLoss: false,
-            salesReport: false
+            salesReport: false,
+            balanceSheet: false
         },
         customers: {
             view: true,
             list: true,
             invoices: true,
+            generateInvoice: true,
             payables: false
         },
         vendors: {
             view: false,
             list: false,
             invoices: false,
+            generateInvoice: false,
             payables: false
         },
         brokers: {
@@ -81,7 +90,8 @@ const permissionTemplates = {
         settings: {
             view: true,
             account: true,
-            userManagement: false
+            userManagement: false,
+            utilities: false
         }
     }
 };

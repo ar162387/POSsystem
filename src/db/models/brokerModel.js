@@ -35,16 +35,18 @@ const BrokerModel = {
     },
 
     create: (brokerData) => {
-        return new Promise((resolve, reject) => {
-            const newBroker = {
-                ...brokerData,
-                createdAt: new Date(),
-                updatedAt: new Date()
-            };
+        const brokerWithDefaults = {
+            ...brokerData,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            paymentHistory: brokerData.paymentHistory || [],
+            totalPaid: 0
+        };
 
-            db.brokers.insert(newBroker, (err, broker) => {
+        return new Promise((resolve, reject) => {
+            db.brokers.insert(brokerWithDefaults, (err, newBroker) => {
                 if (err) reject(err);
-                resolve(broker);
+                resolve(newBroker);
             });
         });
     },

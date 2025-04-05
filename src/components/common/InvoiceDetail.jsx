@@ -100,7 +100,7 @@ const InvoiceDetail = ({
                         <svg className="w-5 h-5 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
                         </svg>
-                        {entityType} Information
+                        Customer Name
                     </h3>
                     <div className="border-t border-gray-200 pt-3">
                         <p className="font-medium text-gray-800 mb-1">{invoice[entityNameField]}</p>
@@ -128,15 +128,15 @@ const InvoiceDetail = ({
                         <div className="grid grid-cols-2 gap-y-3">
                             <div className="col-span-2 sm:col-span-1">
                                 <p className="text-gray-600 text-sm">Total Amount</p>
-                                <p className="font-medium text-gray-900">${parseFloat(invoice.totalAmount).toFixed(2)}</p>
+                                <p className="font-medium text-gray-900">Rs {parseFloat(invoice.totalAmount).toFixed(2)}</p>
                             </div>
                             <div className="col-span-2 sm:col-span-1">
                                 <p className="text-gray-600 text-sm">Paid Amount</p>
-                                <p className="font-medium text-green-600">${parseFloat(invoice.paidAmount || 0).toFixed(2)}</p>
+                                <p className="font-medium text-green-600">Rs {parseFloat(invoice.paidAmount || 0).toFixed(2)}</p>
                             </div>
                             <div className="col-span-2">
                                 <p className="text-gray-600 text-sm">Remaining</p>
-                                <p className="font-medium text-red-600">${parseFloat(invoice.remainingAmount || 0).toFixed(2)}</p>
+                                <p className="font-medium text-red-600">Rs {parseFloat(invoice.remainingAmount || 0).toFixed(2)}</p>
                             </div>
                         </div>
                     </div>
@@ -153,19 +153,9 @@ const InvoiceDetail = ({
                         Broker Information
                     </h3>
                     <div className="border-t border-indigo-100 pt-3">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                                <p className="text-gray-600 text-sm">Broker Name</p>
-                                <p className="font-medium text-gray-900">{invoice.brokerName}</p>
-                            </div>
-                            <div>
-                                <p className="text-gray-600 text-sm">Commission Rate</p>
-                                <p className="font-medium text-gray-900">{parseFloat(invoice.commissionPercentage || 0).toFixed(2)}%</p>
-                            </div>
-                            <div>
-                                <p className="text-gray-600 text-sm">Commission Amount</p>
-                                <p className="font-medium text-indigo-600">${parseFloat(invoice.commissionAmount || 0).toFixed(2)}</p>
-                            </div>
+                        <div>
+                            <p className="text-gray-600 text-sm">Broker Name</p>
+                            <p className="font-medium text-gray-900">{invoice.brokerName}</p>
                         </div>
                     </div>
                 </div>
@@ -186,19 +176,22 @@ const InvoiceDetail = ({
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Item
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Quantity
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Gross Weight (kg)
+                                </th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Net Weight (kg)
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Packaging Cost
+                                </th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     {isVendorInvoice ? 'Purchase Price' : 'Selling Price'}
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Packaging
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Total
                                 </th>
                             </tr>
@@ -209,20 +202,23 @@ const InvoiceDetail = ({
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="font-medium text-gray-900">{item.name || item.itemName}</div>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-gray-700">
                                         {item.quantity}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                                        {parseFloat(item.netWeight).toFixed(2)}
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-gray-700">
+                                        {parseFloat(item.grossWeight || 0).toFixed(2)}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                                        ${parseFloat(item[priceField]).toFixed(2)}
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-gray-700">
+                                        {parseFloat(item.netWeight || 0).toFixed(2)}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                                        ${parseFloat(item.packagingCost).toFixed(2)}
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-gray-700">
+                                        Rs {parseFloat(item.packagingCost || 0).toFixed(2)}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
-                                        ${calculateItemTotal(item).toFixed(2)}
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-gray-700">
+                                        Rs {parseFloat(item[isVendorInvoice ? 'purchasePrice' : 'sellingPrice'] || 0).toFixed(2)}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-right font-medium text-gray-900">
+                                        Rs {calculateItemTotal(item).toFixed(2)}
                                     </td>
                                 </tr>
                             ))}
@@ -238,21 +234,63 @@ const InvoiceDetail = ({
                     <div className="border-t border-gray-200 pt-3">
                         <div className="flex justify-between py-2">
                             <span className="text-gray-600">Subtotal:</span>
-                            <span className="font-medium">${parseFloat(invoice.subtotal || invoice.totalAmount).toFixed(2)}</span>
+                            <span className="font-medium">Rs {parseFloat(invoice.subtotal || invoice.totalAmount).toFixed(2)}</span>
                         </div>
-                        {invoice.brokerName && (
-                            <div className="flex justify-between py-2 text-indigo-600">
-                                <span>Broker Commission:</span>
-                                <span>${parseFloat(invoice.commissionAmount || 0).toFixed(2)}</span>
-                            </div>
-                        )}
+                        <div className="flex justify-between py-2 text-gray-600">
+                            <span>Labour and Transport Cost:</span>
+                            <span>Rs {parseFloat(isVendorInvoice ? invoice.labourTransportCost : invoice.laborTransportCost || 0).toFixed(2)}</span>
+                        </div>
                         <div className="flex justify-between pt-2 border-t border-gray-200 text-lg font-bold">
                             <span>Total:</span>
-                            <span>${parseFloat(invoice.totalAmount).toFixed(2)}</span>
+                            <span>Rs {parseFloat(invoice.totalAmount).toFixed(2)}</span>
                         </div>
                     </div>
                 </div>
             </div>
+
+            {/* Payment History Section */}
+            {invoice.paymentHistory && invoice.paymentHistory.length > 0 && (
+                <div className="mb-8">
+                    <h3 className="text-gray-700 font-semibold mb-4 flex items-center">
+                        <svg className="w-5 h-5 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                        </svg>
+                        Payment History
+                    </h3>
+                    <div className="overflow-x-auto bg-white rounded-lg border border-gray-200 md:w-1/2">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead>
+                                <tr className="bg-gray-50">
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Date
+                                    </th>
+                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Amount
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Method
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                                {invoice.paymentHistory.map((payment, index) => (
+                                    <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                            {formatDate(payment.date)}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+                                            Rs {parseFloat(payment.amount).toFixed(2)}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700 capitalize">
+                                            {payment.method}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
 
             {/* Notes Section */}
             {invoice.notes && (

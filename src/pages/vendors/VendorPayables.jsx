@@ -36,15 +36,29 @@ const VendorPayables = () => {
     const [invoiceToEdit, setInvoiceToEdit] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
+    const [vendorSearchTerm, setVendorSearchTerm] = useState('');
+    const [overallStats, setOverallStats] = useState({
+        invoiceCount: 0,
+        totalAmount: 0,
+        paidAmount: 0,
+        remainingAmount: 0
+    });
     const perPage = 10;
 
     // Memoized calculation functions
     const calculateVendorTotals = useCallback((invoiceList) => {
         const totals = {};
+        let overall = {
+            invoiceCount: 0,
+            totalAmount: 0,
+            paidAmount: 0,
+            remainingAmount: 0
+        };
 
         invoiceList.forEach(invoice => {
             if (!invoice.vendorId) return;
 
+            // Calculate for specific vendor
             if (!totals[invoice.vendorId]) {
                 totals[invoice.vendorId] = {
                     totalAmount: 0,
@@ -55,17 +69,28 @@ const VendorPayables = () => {
                 };
             }
 
-            totals[invoice.vendorId].totalAmount += parseFloat(invoice.totalAmount || 0);
-            totals[invoice.vendorId].paidAmount += parseFloat(invoice.paidAmount || 0);
-            totals[invoice.vendorId].remainingAmount += parseFloat(invoice.remainingAmount || 0);
+            const totalAmount = parseFloat(invoice.totalAmount || 0);
+            const paidAmount = parseFloat(invoice.paidAmount || 0);
+            const remainingAmount = parseFloat(invoice.remainingAmount || 0);
+
+            totals[invoice.vendorId].totalAmount += totalAmount;
+            totals[invoice.vendorId].paidAmount += paidAmount;
+            totals[invoice.vendorId].remainingAmount += remainingAmount;
             totals[invoice.vendorId].invoiceCount += 1;
 
             if (invoice.status !== 'paid') {
                 totals[invoice.vendorId].unpaidCount += 1;
             }
+
+            // Add to overall stats
+            overall.totalAmount += totalAmount;
+            overall.paidAmount += paidAmount;
+            overall.remainingAmount += remainingAmount;
+            overall.invoiceCount += 1;
         });
 
         setVendorTotals(totals);
+        setOverallStats(overall);
     }, []);
 
     const filterInvoices = useCallback(() => {
@@ -274,46 +299,64 @@ const VendorPayables = () => {
         {
             key: 'totalAmount',
             label: 'Amount',
-            format: (val) => `$${parseFloat(val).toFixed(2)}`,
+            format: (val) => formatCurrency(val),
         },
         {
             key: 'paidAmount',
             label: 'Paid',
-            format: (val) => `$${parseFloat(val).toFixed(2)}`,
+            format: (val) => formatCurrency(val),
             cellClassName: 'text-green-600',
         },
         {
             key: 'remainingAmount',
             label: 'Balance',
-            format: (val) => `$${parseFloat(val).toFixed(2)}`,
+            format: (val) => formatCurrency(val),
             cellClassName: 'text-red-600',
         },
         {
-            key: 'status',
-            label: 'Status',
-            render: (invoice) => (
-                <span className={`px-2 py-1 rounded-full text-xs ${getInvoiceStatusClass(invoice)}`}>
-                    {getInvoiceStatusLabel(invoice)}
-                </span>
-            ),
+            key: 'paymentStatus',
+            label: 'Payment Status',
+            format: (value, row) => {
+                let status = 'Unpaid';
+                const paidAmount = parseFloat(row.paidAmount || 0);
+                const totalAmount = parseFloat(row.totalAmount || 0);
+
+                if (paidAmount >= totalAmount) {
+                    status = 'Paid';
+                } else if (paidAmount > 0) {
+                    status = 'Partially Paid';
+                }
+
+                const statusClasses = {
+                    'Paid': 'bg-green-100 text-green-800',
+                    'Partially Paid': 'bg-amber-100 text-amber-800',
+                    'Unpaid': 'bg-red-100 text-red-800'
+                };
+
+                return (
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-md ${statusClasses[status]}`}>
+                        {status}
+                    </span>
+                );
+            }
         },
         {
             key: 'actions',
             label: 'Actions',
-            render: (invoice) => (
+            format: (value, row) => (
                 <div className="flex space-x-2">
                     <Button
                         variant="secondary"
                         size="sm"
-                        onClick={() => handleViewInvoice(invoice)}
+                        onClick={() => handleViewInvoice(row)}
                     >
                         View
                     </Button>
                     <Button
                         variant="primary"
                         size="sm"
-                        onClick={() => handleEditInvoice(invoice)}
-                        disabled={invoice.status === 'paid'}
+                        onClick={() => handleEditInvoice(row)}
+                        disabled={parseFloat(row.paidAmount || 0) >= parseFloat(row.totalAmount || 0)}
                     >
                         Update Payment
                     </Button>
@@ -325,6 +368,22 @@ const VendorPayables = () => {
     const getCurrentPageInvoices = () => {
         const startIndex = (currentPage - 1) * perPage;
         return filteredInvoices.slice(startIndex, startIndex + perPage);
+    };
+
+    const getFilteredVendorOptions = () => {
+        const searchLower = vendorSearchTerm.toLowerCase();
+        return [
+            { value: '', label: 'All Vendors' },
+            ...vendors
+                .filter(vendor =>
+                    vendor.name.toLowerCase().includes(searchLower) ||
+                    (vendor.company && vendor.company.toLowerCase().includes(searchLower))
+                )
+                .map(vendor => ({
+                    value: vendor._id,
+                    label: vendor.name
+                }))
+        ];
     };
 
     return (
@@ -340,16 +399,17 @@ const VendorPayables = () => {
             <div className="bg-white rounded-lg shadow-md p-6 mb-6">
                 <div className="flex flex-col md:flex-row justify-between items-center mb-6 space-y-4 md:space-y-0">
                     <div className="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-2 w-full md:w-auto">
+                        <Input
+                            type="text"
+                            placeholder="Search vendors..."
+                            value={vendorSearchTerm}
+                            onChange={(e) => setVendorSearchTerm(e.target.value)}
+                            className="md:w-64"
+                        />
                         <Select
                             value={selectedVendor}
                             onChange={(e) => setSelectedVendor(e.target.value)}
-                            options={[
-                                { value: '', label: 'All Vendors' },
-                                ...vendors.map(vendor => ({
-                                    value: vendor._id,
-                                    label: vendor.name
-                                }))
-                            ]}
+                            options={getFilteredVendorOptions()}
                             className="md:w-64"
                         />
                         <Select
@@ -365,7 +425,7 @@ const VendorPayables = () => {
                         />
                         <Input
                             type="text"
-                            placeholder="Search by invoice # or vendor"
+                            placeholder="Search by invoice #"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="md:w-64"
@@ -373,31 +433,47 @@ const VendorPayables = () => {
                     </div>
                 </div>
 
-                {selectedVendor && vendorTotals[selectedVendor] && (
-                    <div className="bg-gray-50 p-4 rounded-lg mb-6">
-                        <h3 className="text-lg font-semibold mb-2">
-                            {vendors.find(v => v._id === selectedVendor)?.name} - Summary
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div>
-                                <p className="text-sm text-gray-600">Total Invoices</p>
-                                <p className="font-semibold">{vendorTotals[selectedVendor].invoiceCount}</p>
-                            </div>
-                            <div>
-                                <p className="text-sm text-gray-600">Total Amount</p>
-                                <p className="font-semibold">{formatCurrency(vendorTotals[selectedVendor].totalAmount)}</p>
-                            </div>
-                            <div>
-                                <p className="text-sm text-gray-600">Paid Amount</p>
-                                <p className="font-semibold text-green-600">{formatCurrency(vendorTotals[selectedVendor].paidAmount)}</p>
-                            </div>
-                            <div>
-                                <p className="text-sm text-gray-600">Remaining Amount</p>
-                                <p className="font-semibold text-red-600">{formatCurrency(vendorTotals[selectedVendor].remainingAmount)}</p>
-                            </div>
+                <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                    <h3 className="text-lg font-semibold mb-2">
+                        {selectedVendor
+                            ? `${vendors.find(v => v._id === selectedVendor)?.name} - Summary`
+                            : 'Overall Summary'}
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <p className="text-sm text-gray-600">Total Invoices</p>
+                            <p className="font-semibold">
+                                {selectedVendor
+                                    ? vendorTotals[selectedVendor]?.invoiceCount || 0
+                                    : overallStats.invoiceCount}
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-600">Total Amount</p>
+                            <p className="font-semibold">
+                                {formatCurrency(selectedVendor
+                                    ? vendorTotals[selectedVendor]?.totalAmount || 0
+                                    : overallStats.totalAmount)}
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-600">Paid Amount</p>
+                            <p className="font-semibold text-green-600">
+                                {formatCurrency(selectedVendor
+                                    ? vendorTotals[selectedVendor]?.paidAmount || 0
+                                    : overallStats.paidAmount)}
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-600">Remaining Amount</p>
+                            <p className="font-semibold text-red-600">
+                                {formatCurrency(selectedVendor
+                                    ? vendorTotals[selectedVendor]?.remainingAmount || 0
+                                    : overallStats.remainingAmount)}
+                            </p>
                         </div>
                     </div>
-                )}
+                </div>
 
                 {loading ? (
                     <div className="text-center py-8">

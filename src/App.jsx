@@ -11,6 +11,7 @@ import ListContacts from "./pages/customers/ListContacts.jsx";
 import GenerateInvoice from "./pages/customers/GenerateInvoice.jsx";
 import AccountSettings from "./pages/settings/AccountSettings.jsx";
 import UserManagement from "./pages/settings/UserManagement.jsx";
+import SystemUtilities from "./pages/settings/SystemUtilities.jsx";
 import CustomerPayables from "./pages/customers/CustomerPayables.jsx";
 import CustomerInvoices from "./pages/customers/CustomerInvoices.jsx";
 import Vendors from "./pages/vendors/Vendors.jsx";
@@ -23,6 +24,8 @@ import ListCommissioners from "./pages/commissioners/ListCommissioners.jsx";
 import AddCommissionSheet from "./pages/commissioners/AddCommissionSheet.jsx";
 import ListCommissionSheets from "./pages/commissioners/ListCommissionSheets.jsx";
 import SalesReport from './pages/financial/SalesReport.jsx';
+import FakeInvoices from './pages/FakeInvoices.jsx';
+import BalanceSheet from './pages/financial/BalanceSheet.jsx';
 import "./index.css";
 
 // Protected route component
@@ -78,6 +81,11 @@ const AppRoutes = () => {
           <Route path="details" element={<FinancialDetails />} />
           <Route path="profit-loss" element={<ProfitLoss />} />
           <Route path="sales-report" element={<SalesReport />} />
+          <Route path="balance-sheet" element={
+            <AdminRoute>
+              <BalanceSheet />
+            </AdminRoute>
+          } />
         </Route>
 
         {/* Customers */}
@@ -113,7 +121,15 @@ const AppRoutes = () => {
               <UserManagement />
             </AdminRoute>
           } />
+          <Route path="utilities" element={
+            <AdminRoute>
+              <SystemUtilities />
+            </AdminRoute>
+          } />
         </Route>
+
+        {/* Fake Invoices */}
+        <Route path="fake-invoices" element={<FakeInvoices />} />
       </Route>
     </Routes>
   );

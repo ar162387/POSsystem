@@ -15,7 +15,8 @@ const db = {
     vendorInvoices: new Datastore({ filename: path.join(app.getPath('userData'), 'vendorInvoices.db'), autoload: true }),
     brokers: new Datastore({ filename: path.join(app.getPath('userData'), 'brokers.db'), autoload: true }),
     commissioners: new Datastore({ filename: path.join(app.getPath('userData'), 'commissioners.db'), autoload: true }),
-    commissionSheets: new Datastore({ filename: path.join(app.getPath('userData'), 'commissionSheets.db'), autoload: true })
+    commissionSheets: new Datastore({ filename: path.join(app.getPath('userData'), 'commissionSheets.db'), autoload: true }),
+    commissionerPayments: new Datastore({ filename: path.join(app.getPath('userData'), 'commissionerPayments.db'), autoload: true })
 };
 
 console.log('Database files path:', app.getPath('userData'));
